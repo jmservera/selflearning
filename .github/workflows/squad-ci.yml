@@ -1,0 +1,45 @@
+name: Squad CI
+
+on:
+  pull_request:
+    branches: [dev, preview, main, insider]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [dev, insider]
+
+permissions:
+  contents: read
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -r tests/pyproject.toml
+          for svc in api scraper extractor knowledge reasoner evaluator orchestrator healer; do
+            uv pip install --system -r "src/${svc}/pyproject.toml"
+          done
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+  test-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install and lint
+        run: |
+          npm ci --prefix src/ui
+          npm run lint --prefix src/ui
+          npm run build --prefix src/ui

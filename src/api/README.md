@@ -33,6 +33,6 @@ External HTTP interface for users and integrations.
 ## Running Locally
 
 ```bash
-pip install -r requirements.txt
+pip install -r pyproject.toml
 uvicorn api.main:app --reload --port 8000
 ```

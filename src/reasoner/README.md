@@ -29,6 +29,6 @@ Synthesizes knowledge, identifies gaps, and generates insights.
 ## Running Locally
 
 ```bash
-pip install -r requirements.txt
+pip install -r pyproject.toml
 python -m reasoner
 ```

@@ -41,3 +41,4 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+.squad/_upstream_repos/

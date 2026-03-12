@@ -29,6 +29,6 @@ Monitors system health, detects failures, and triggers recovery.
 ## Running Locally
 
 ```bash
-pip install -r requirements.txt
+pip install -r pyproject.toml
 python -m healer
 ```

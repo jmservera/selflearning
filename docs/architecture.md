@@ -567,35 +567,35 @@ selflearning/
 ├── src/                           # Application source code
 │   ├── scraper/                   # Web scraping service
 │   │   ├── Dockerfile
-│   │   ├── requirements.txt
+│   │   ├── pyproject.toml
 │   │   └── README.md
 │   ├── extractor/                 # Knowledge extraction service
 │   │   ├── Dockerfile
-│   │   ├── requirements.txt
+│   │   ├── pyproject.toml
 │   │   └── README.md
 │   ├── knowledge/                 # Knowledge graph service
 │   │   ├── Dockerfile
-│   │   ├── requirements.txt
+│   │   ├── pyproject.toml
 │   │   └── README.md
 │   ├── reasoner/                  # Reasoning & synthesis service
 │   │   ├── Dockerfile
-│   │   ├── requirements.txt
+│   │   ├── pyproject.toml
 │   │   └── README.md
 │   ├── evaluator/                 # Self-evaluation service
 │   │   ├── Dockerfile
-│   │   ├── requirements.txt
+│   │   ├── pyproject.toml
 │   │   └── README.md
 │   ├── orchestrator/              # Pipeline orchestration service
 │   │   ├── Dockerfile
-│   │   ├── requirements.txt
+│   │   ├── pyproject.toml
 │   │   └── README.md
 │   ├── healer/                    # Self-healing service
 │   │   ├── Dockerfile
-│   │   ├── requirements.txt
+│   │   ├── pyproject.toml
 │   │   └── README.md
 │   └── api/                       # API gateway service
 │       ├── Dockerfile
-│       ├── requirements.txt
+│       ├── pyproject.toml
 │       └── README.md
 │
 └── tests/                         # Integration and end-to-end tests

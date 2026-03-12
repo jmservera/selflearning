@@ -28,6 +28,6 @@ Drives the learning pipeline — decides what to learn next.
 ## Running Locally
 
 ```bash
-pip install -r requirements.txt
+pip install -r pyproject.toml
 python -m orchestrator
 ```

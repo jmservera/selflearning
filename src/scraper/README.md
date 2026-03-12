@@ -28,6 +28,6 @@ Discovers and retrieves content from the internet for knowledge acquisition.
 ## Running Locally
 
 ```bash
-pip install -r requirements.txt
+pip install -r pyproject.toml
 python -m scraper
 ```

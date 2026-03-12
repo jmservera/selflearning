@@ -1,0 +1,33 @@
+name: Squad Preview Validation
+# Project type was not detected — configure build, test, and validation commands below
+
+on:
+  push:
+    branches: [preview]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install and test
+        run: |
+          uv pip install --system -r tests/pyproject.toml
+          for svc in api scraper extractor knowledge reasoner evaluator orchestrator healer; do
+            uv pip install --system -r "src/${svc}/pyproject.toml"
+          done
+          python -m pytest tests/ -v
+
+      - name: Validate
+        run: |
+          # TODO: Add pre-release validation commands here
+          echo "No validation commands configured — update squad-preview.yml"

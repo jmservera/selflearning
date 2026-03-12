@@ -28,6 +28,6 @@ Measures the system's expertise level and identifies weaknesses.
 ## Running Locally
 
 ```bash
-pip install -r requirements.txt
+pip install -r pyproject.toml
 python -m evaluator
 ```

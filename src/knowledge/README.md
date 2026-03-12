@@ -29,6 +29,6 @@ Partition key: `topic` (co-locates all knowledge for a topic)
 ## Running Locally
 
 ```bash
-pip install -r requirements.txt
+pip install -r pyproject.toml
 python -m knowledge
 ```

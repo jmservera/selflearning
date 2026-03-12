@@ -1,0 +1,39 @@
+# Copilot Coding Agent — Environment Setup
+# This workflow defines the steps to prepare the environment
+# for GitHub Copilot's coding agent to work on issues and PRs.
+#
+# Docs: https://docs.github.com/en/copilot/using-github-copilot/using-copilot-coding-agent
+
+name: "Copilot Setup Steps"
+
+on: workflow_dispatch
+
+jobs:
+  copilot-setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── uv + Python (backend services + tests) ──
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python test dependencies
+        run: uv pip install --system -r tests/pyproject.toml
+
+      - name: Install service dependencies
+        run: |
+          for svc in api scraper extractor knowledge reasoner evaluator orchestrator healer; do
+            uv pip install --system -r "src/${svc}/pyproject.toml"
+          done
+
+      # ── Node.js (React UI) ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install UI dependencies
+        run: npm ci --prefix src/ui

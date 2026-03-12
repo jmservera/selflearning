@@ -1,0 +1,37 @@
+name: Squad Insider Release
+# Project type was not detected — configure build, test, and insider release commands below
+
+on:
+  push:
+    branches: [insider]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install and test
+        run: |
+          uv pip install --system -r tests/pyproject.toml
+          for svc in api scraper extractor knowledge reasoner evaluator orchestrator healer; do
+            uv pip install --system -r "src/${svc}/pyproject.toml"
+          done
+          python -m pytest tests/ -v
+
+      - name: Create insider release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # TODO: Add your insider/pre-release commands here
+          echo "No release commands configured — update squad-insider-release.yml"

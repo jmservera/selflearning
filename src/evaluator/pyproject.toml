@@ -1,0 +1,16 @@
+[project]
+name = "selflearning-evaluator"
+version = "0.1.0"
+description = "Self-evaluation service"
+requires-python = ">=3.12"
+dependencies = [
+    "azure-identity>=1.19.0",
+    "azure-monitor-opentelemetry>=1.6.0",
+    "opentelemetry-api>=1.28.0",
+    "pydantic>=2.10.0",
+    "uvicorn>=0.34.0",
+    "fastapi>=0.115.0",
+    "azure-servicebus>=7.13.0",
+    "azure-ai-inference>=1.0.0b9",
+    "httpx>=0.28.0",
+]
