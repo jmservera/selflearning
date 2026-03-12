@@ -130,6 +130,7 @@ module containerAppsEnv 'modules/container-apps-env.bicep' = {
     resourceToken: resourceToken
     tags: tags
     logAnalyticsWorkspaceId: monitoring.outputs.logAnalyticsWorkspaceId
+    logAnalyticsWorkspaceName: monitoring.outputs.logAnalyticsWorkspaceName
   }
 }
 
@@ -149,8 +150,8 @@ module identity 'modules/identity.bicep' = {
   }
 }
 
-// Container Apps (one per service, using reusable module)
-var services = [
+// Container Apps — backend services (Python, port 8000)
+var backendServices = [
   { name: 'scraper', external: false }
   { name: 'extractor', external: false }
   { name: 'knowledge', external: false }
@@ -161,8 +162,21 @@ var services = [
   { name: 'api', external: true }
 ]
 
+var backendEnv = [
+  { name: 'AZURE_AI_FOUNDRY_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
+  { name: 'AZURE_COSMOS_ENDPOINT', value: cosmosDb.outputs.endpoint }
+  { name: 'AZURE_SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
+  { name: 'AZURE_STORAGE_ACCOUNT', value: storage.outputs.storageAccountName }
+  { name: 'AZURE_SEARCH_ENDPOINT', value: aiSearch.outputs.endpoint }
+  {
+    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+    value: monitoring.outputs.appInsightsConnectionString
+  }
+  { name: 'AZURE_CLIENT_ID', value: identity.outputs.identityClientId }
+]
+
 module containerApps 'modules/container-app.bicep' = [
-  for service in services: {
+  for service in backendServices: {
     name: 'ca-${service.name}'
     scope: rg
     params: {
@@ -174,21 +188,30 @@ module containerApps 'modules/container-app.bicep' = [
       identityId: identity.outputs.identityId
       identityClientId: identity.outputs.identityClientId
       external: service.external
-      env: [
-        { name: 'AZURE_AI_FOUNDRY_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
-        { name: 'AZURE_COSMOS_ENDPOINT', value: cosmosDb.outputs.endpoint }
-        { name: 'AZURE_SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
-        { name: 'AZURE_STORAGE_ACCOUNT', value: storage.outputs.storageAccountName }
-        { name: 'AZURE_SEARCH_ENDPOINT', value: aiSearch.outputs.endpoint }
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: monitoring.outputs.appInsightsConnectionString
-        }
-        { name: 'AZURE_CLIENT_ID', value: identity.outputs.identityClientId }
-      ]
+      env: backendEnv
     }
   }
 ]
+
+// UI Container App (nginx, port 80)
+module uiContainerApp 'modules/container-app.bicep' = {
+  name: 'ca-ui'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'ui'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: true
+    targetPort: 80
+    env: [
+      { name: 'API_GATEWAY_URL', value: 'https://${containerApps[7].outputs.fqdn}' }
+    ]
+  }
+}
 
 // Outputs for azd
 output AZURE_LOCATION string = location
@@ -198,4 +221,5 @@ output AZURE_COSMOS_ENDPOINT string = cosmosDb.outputs.endpoint
 output AZURE_SERVICEBUS_NAMESPACE string = serviceBus.outputs.fullyQualifiedNamespace
 output AZURE_STORAGE_ACCOUNT string = storage.outputs.storageAccountName
 output AZURE_SEARCH_ENDPOINT string = aiSearch.outputs.endpoint
-output API_GATEWAY_URL string = containerApps[7].outputs.fqdn
+output API_GATEWAY_URL string = 'https://${containerApps[7].outputs.fqdn}'
+output UI_URL string = 'https://${uiContainerApp.outputs.fqdn}'

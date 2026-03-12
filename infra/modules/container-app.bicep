@@ -22,6 +22,9 @@ param identityClientId string
 @description('Whether to expose external ingress')
 param external bool = false
 
+@description('Target port for the container')
+param targetPort int = 8000
+
 @description('Environment variables for the container')
 param env array = []
 
@@ -41,7 +44,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       activeRevisionsMode: 'Single'
       ingress: {
         external: external
-        targetPort: 8000
+        targetPort: targetPort
         transport: 'auto'
         allowInsecure: false
       }

@@ -7,10 +7,17 @@ param resourceToken string
 @description('Tags for all resources')
 param tags object
 
-@description('Log Analytics Workspace ID')
+@description('Log Analytics Workspace resource ID')
 param logAnalyticsWorkspaceId string
 
+@description('Log Analytics Workspace name')
+param logAnalyticsWorkspaceName string
+
 var abbrs = loadJsonContent('../abbreviations.json')
+
+resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = {
+  name: logAnalyticsWorkspaceName
+}
 
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: '${abbrs.containerAppsEnvironment}${resourceToken}'
@@ -20,8 +27,8 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01'
     appLogsConfiguration: {
       destination: 'log-analytics'
       logAnalyticsConfiguration: {
-        customerId: reference(logAnalyticsWorkspaceId, '2023-09-01').customerId
-        sharedKey: listKeys(logAnalyticsWorkspaceId, '2023-09-01').primarySharedKey
+        customerId: logAnalyticsWorkspace.properties.customerId
+        sharedKey: logAnalyticsWorkspace.listKeys().primarySharedKey
       }
     }
     workloadProfiles: [
