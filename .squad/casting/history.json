@@ -1,0 +1,24 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "The Matrix",
+      "used_at": "2026-03-12",
+      "repo": "selflearning",
+      "agent_count": 5
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "selflearning-2026-03-12": {
+      "assignment_id": "selflearning-2026-03-12",
+      "universe": "The Matrix",
+      "agents": {
+        "morpheus": "Lead / Architect",
+        "trinity": "Data Engineer",
+        "oracle": "AI/ML Engineer",
+        "tank": "Backend Dev",
+        "niobe": "Tester / Evaluator"
+      },
+      "created_at": "2026-03-12"
+    }
+  }
+}
