@@ -67,7 +67,7 @@ export const EntityDetail: React.FC<EntityDetailProps> = ({ entityId, topic, onC
               <div>
                 <h3 className="text-2xl font-bold text-slate-100 mb-1">{entity.name}</h3>
                 <span className="inline-block px-2 py-1 text-xs font-medium bg-blue-600/20 text-blue-400 rounded">
-                  {entity.type}
+                  {entity.entity_type}
                 </span>
               </div>
 
@@ -91,25 +91,25 @@ export const EntityDetail: React.FC<EntityDetailProps> = ({ entityId, topic, onC
             </div>
 
             {/* Sources */}
-            {entity.sources && entity.sources.length > 0 && (
+            {entity.source_urls && entity.source_urls.length > 0 && (
               <div className="space-y-2">
                 <h4 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
                   <ExternalLink className="w-4 h-4" />
-                  Sources ({entity.sources.length})
+                  Sources ({entity.source_urls.length})
                 </h4>
                 <div className="space-y-2">
-                  {entity.sources.map((source, idx) => (
+                  {entity.source_urls.map((url, idx) => (
                     <a
                       key={idx}
-                      href={source.url}
+                      href={url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="block p-3 bg-slate-800 border border-slate-700 rounded-lg hover:border-blue-500 transition-colors group"
                     >
                       <div className="text-sm text-slate-300 group-hover:text-blue-400 transition-colors truncate">
-                        {source.title || new URL(source.url).hostname}
+                        {new URL(url).hostname}
                       </div>
-                      <div className="text-xs text-slate-500 truncate mt-1">{source.url}</div>
+                      <div className="text-xs text-slate-500 truncate mt-1">{url}</div>
                     </a>
                   ))}
                 </div>
@@ -132,7 +132,7 @@ export const EntityDetail: React.FC<EntityDetailProps> = ({ entityId, topic, onC
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-slate-300">{rel.target_name}</div>
-                          <div className="text-xs text-slate-500 mt-1">{rel.relation_type}</div>
+                          <div className="text-xs text-slate-500 mt-1">{rel.relationship_type}</div>
                         </div>
                         <div className="w-16 flex-shrink-0">
                           <ConfidenceBar value={rel.confidence} size="sm" showLabel={false} />

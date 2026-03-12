@@ -54,3 +54,27 @@
 - **Incoming dependencies:** Extractor/Reasoner feed entities/insights to Knowledge service; Evaluator queries Knowledge endpoints; Orchestrator manages all through Service Bus
 - **Next iteration:** Integration testing, first learning loop (scrape → extract → organize → reason → evaluate → improve), production deployment prep
 
+### 2026-03-12: Control UI React application
+- **Built complete frontend:** Vite + React + TypeScript SPA in src/ui/ with 42 files, ~7,864 LOC
+- **Project structure:**
+  - TypeScript types mirroring all Python API models (TopicResponse, SearchResponse, ChatResponse, etc.)
+  - API client with fetch-based calls to all backend endpoints
+  - WebSocket hooks for real-time status and log streaming with auto-reconnect
+  - Layout system with collapsible sidebar, header with system status
+  - Dashboard page with 5 panels: StatusPanel (live metrics), ProgressChart (topic cards), ActivityLog (streaming feed), SteeringControls (topic creation form)
+- **Design patterns:**
+  - Dark mode by default (Tailwind slate-900/950 backgrounds, blue/emerald/amber/rose accents)
+  - Custom hooks: useDashboard (auto-refresh every 5s), useTopics (CRUD operations), useWebSocket (auto-reconnect with exponential backoff)
+  - TopicCard shows status badge, progress bar, priority dots, entity/claim counts, inline controls (start/pause/resume, priority up/down)
+  - ActivityLog shows emoji icons per service, success/fail indicators, auto-scrolls to new entries
+  - SteeringControls has collapsible form with sliders for priority (1-10) and target expertise (0-1)
+- **Integration with Oracle:**
+  - ChatPage and KnowledgeExplorerPage built by Oracle, integrated via lazy loading with fallback placeholders
+  - Fixed API calls in both pages (api.topics.list, api.chat.send, api.knowledge.search, api.knowledge.getEntity)
+  - Shared Entity type extended with optional relationships and claims arrays
+- **Deployment:**
+  - Multi-stage Dockerfile: node:20-alpine build → nginx:alpine serve
+  - nginx.conf with SPA fallback, API proxy to /api/*, WebSocket proxy to /ws/*
+  - Added ui service to azure.yaml (language: js, host: containerapp)
+- **Build verified:** npm install + npm run build succeeded, no errors
+

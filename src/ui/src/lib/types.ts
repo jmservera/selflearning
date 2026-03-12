@@ -141,18 +141,18 @@ export interface WSMessage {
 export interface Entity {
   id: string;
   name: string;
-  type: string;
+  entity_type: string;
   description: string;
   topic: string;
   confidence: number;
-  sources: Array<{ url: string; title?: string }>;
+  source_urls: string[];
   created_at: string;
   updated_at: string;
   relationships?: Array<{
     id: string;
-    target_entity: string;
+    target_entity_id: string;
     target_name: string;
-    relation_type: string;
+    relationship_type: string;
     confidence: number;
   }>;
   claims?: Array<{
@@ -166,10 +166,12 @@ export interface Entity {
 export interface KnowledgeGraph {
   entities: Entity[];
   relationships: Array<{
-    source: string;
-    target: string;
-    type: string;
+    id: string;
+    source_entity_id: string;
+    target_entity_id: string;
+    relationship_type: string;
     confidence: number;
+    topic: string;
   }>;
   topic: string;
 }

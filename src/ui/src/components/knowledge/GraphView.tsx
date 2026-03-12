@@ -63,8 +63,8 @@ export const GraphView: React.FC<GraphViewProps> = ({
 
     const connectionCounts = new Map<string, number>();
     relationships.forEach(rel => {
-      connectionCounts.set(rel.source_entity, (connectionCounts.get(rel.source_entity) || 0) + 1);
-      connectionCounts.set(rel.target_entity, (connectionCounts.get(rel.target_entity) || 0) + 1);
+      connectionCounts.set(rel.source_entity_id, (connectionCounts.get(rel.source_entity_id) || 0) + 1);
+      connectionCounts.set(rel.target_entity_id, (connectionCounts.get(rel.target_entity_id) || 0) + 1);
     });
 
     const initialNodes: Node[] = entities.map((entity, idx) => {
@@ -76,7 +76,7 @@ export const GraphView: React.FC<GraphViewProps> = ({
       return {
         id: entity.id,
         name: entity.name,
-        type: entity.type || 'unknown',
+        type: entity.entity_type || 'unknown',
         confidence: entity.confidence || 0.5,
         x: centerX + Math.cos(angle) * radius,
         y: centerY + Math.sin(angle) * radius,
@@ -87,9 +87,9 @@ export const GraphView: React.FC<GraphViewProps> = ({
     });
 
     const initialEdges: Edge[] = relationships.map(rel => ({
-      source: rel.source_entity,
-      target: rel.target_entity,
-      type: rel.relation_type,
+      source: rel.source_entity_id,
+      target: rel.target_entity_id,
+      type: rel.relationship_type,
       confidence: rel.confidence || 0.5,
     }));
 
