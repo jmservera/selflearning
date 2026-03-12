@@ -24,3 +24,23 @@
 - **Resilience:** Three-layer self-healing (infrastructure auto-restart, pipeline DLQ recovery, cognitive learning adjustment)
 - **My role:** Orchestrator service coordinates all services, API Gateway exposes REST/async endpoints, storage layer persists to Cosmos DB, AI Search indexes knowledge for RAG, Healer monitors and recovers from failures
 
+### 2026-03-12: Knowledge Service + API Gateway implementation
+- **Knowledge Service** (src/knowledge/) — 7 Python files, ~3k lines total
+  - Cosmos DB async CRUD with entity resolution (name+alias fuzzy matching, field merge)
+  - Azure AI Search hybrid search (vector + keyword + faceted)
+  - Service Bus consumer: extraction-complete → ingest → re-index
+  - Bulk ingest pipeline, topic stats/summary analytics
+  - Partition key: `topic` — all queries are partition-aware
+- **API Gateway** (src/api/) — 9 Python files
+  - External HTTP API: topic CRUD, learning control, knowledge search, dashboard
+  - RAG chat: search knowledge graph → build context → call GPT-4o → return with citations
+  - WebSocket handlers for live status + log streaming
+  - Graceful degradation: falls back to Service Bus queuing when orchestrator is unreachable
+  - CORS middleware for web UI consumption
+- **Design decisions:**
+  - One AI Search index per topic (dynamic creation via ensure_index)
+  - Entity resolution uses SequenceMatcher > 0.85 threshold + alias set intersection
+  - Chat confidence is estimated from citation quality + source count − uncertainty phrases
+  - All Azure auth via DefaultAzureCredential (managed identity)
+  - OpenTelemetry spans on every operation
+

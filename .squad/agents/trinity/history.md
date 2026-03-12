@@ -24,3 +24,19 @@
 - **Resilience:** Three-layer self-healing (infrastructure auto-restart, pipeline DLQ recovery, cognitive learning adjustment)
 - **My role:** Scraper service ingests raw web content → Extractor (Oracle) cleans and structures data → Knowledge/Reasoner/Evaluator (Oracle) extract insights → API/Storage (Tank) persist to Cosmos DB
 
+### 2026-03-12: Scraper Service Implementation
+- **Files:** `src/scraper/` — `main.py`, `config.py`, `models.py`, `scraper.py`, `service_bus.py`, `storage.py`
+- **Pattern:** FastAPI lifespan manages all async clients (credential, blob, cosmos, service bus)
+- **Config:** Pydantic Settings with `SCRAPER_` env prefix — all Azure endpoints are env vars
+- **Auth:** `DefaultAzureCredential` (async) shared across all Azure SDK clients
+- **Message contracts:** `ScrapeRequest` in from `scrape-requests` queue → `ScrapeCompleteEvent` out to `scrape-complete` topic
+- **Dedup:** Two-layer — URL recency check + content SHA-256 hash check, both via Cosmos DB
+- **Rate limiting:** Token-bucket per domain, configurable rate/burst
+- **Robots.txt:** Cached per domain, fetched lazily, permissive on errors
+- **Content extraction:** BeautifulSoup strips nav/ads/scripts/aside, prefers `<main>`/`<article>` tags
+- **Blob path convention:** `{topic}/{domain}/{hash_prefix}.html`
+- **Cosmos partition key:** domain (keeps URL dedup queries local)
+- **Dead-letter:** Service Bus SDK handles retries; manual DLQ on deserialization errors or max delivery count
+- **Dependency added:** `pydantic-settings>=2.7.0` to `requirements.txt`
+- **Telemetry:** OpenTelemetry spans on all major operations; Azure Monitor configured when connection string present
+

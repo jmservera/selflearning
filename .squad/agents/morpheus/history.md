@@ -30,3 +30,15 @@
 - **Decision record:** `.squad/decisions/inbox/morpheus-system-architecture.md`
 - **Partition strategy:** Cosmos DB partitioned by `topic` — co-locates all knowledge for efficient graph traversal
 - **Models:** GPT-4o (reasoning/extraction), GPT-4o-mini (lightweight tasks), text-embedding-3-large (embeddings)
+
+### 2026-03-12: Orchestrator and Healer implemented
+- **Orchestrator** (`src/orchestrator/`, 9 files, 2538 lines): Full autonomous learning loop with Plan→Scrape→Extract→Organize→Reason→Evaluate→Improve cycle. Priority-based topic scheduling, gap-driven strategy management (breadth/depth/verification/diversify modes), working memory with relevance decay for LLM context, Cosmos DB persistence, Service Bus coordination.
+- **Healer** (`src/healer/`, 7 files, 1973 lines): Health monitoring of all 7 services with circuit breaker pattern, DLQ scanning with triage (replay vs discard with backoff), Container Apps restart via management API, endpoint failover, prompt tuning analysis, queue-depth scaling recommendations.
+- **Key patterns established:**
+  - `pydantic-settings` for all service configuration via env vars
+  - Async Service Bus listeners with completion-buffer pattern for pipeline coordination
+  - Working memory decay model: on-topic items get boosted, off-topic items decay by configurable factor
+  - Strategy modes drive query generation templates and reasoning task selection
+  - Circuit breaker: closed→open (after N failures)→half-open (after timeout)→closed (after M successes)
+  - DLQ triage: replay with exponential backoff, discard poison/max-retried messages, skip if circuit open
+- **Commit:** `8825dd8` — `feat(orchestrator,healer): implement autonomous learning loop and self-healing system`

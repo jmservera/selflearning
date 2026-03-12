@@ -24,3 +24,17 @@
 - **Resilience:** Three-layer self-healing (infrastructure auto-restart, pipeline DLQ recovery, cognitive learning adjustment)
 - **My role:** Extractor (receive from Trinity's Scraper) → Knowledge/Reasoner/Evaluator services (my domain) → Orchestrator coordinates reasoning chains and learning loops → Healer adjusts strategies
 
+### 2026-03-12: Extractor & Reasoner Implementation
+- Implemented both services as first real Python code in the project (2,590 LOC across 15 files)
+- **Extractor pattern**: chunk → extract entities → extract relationships → extract claims → summarize → embed
+- **Reasoner strategies**: gap_analysis, contradiction_resolution, synthesis, depth_probe
+- Established service patterns for the team: pydantic-settings config, LLMClient wrapper, ServiceBusHandler consume loop, FastAPI lifespan lifecycle
+- LLM client is model-agnostic — model name is a config parameter, same client swaps between GPT-4o/mini
+- All LLM calls instrumented with OpenTelemetry spans recording model, tokens, latency
+- JSON mode (`response_format={"type": "json_object"}`) used for structured extraction; markdown code-fence stripping handles edge cases
+- Entity deduplication uses case-insensitive name normalization, keeps highest-confidence version
+- Document chunking prefers paragraph boundaries, then sentence boundaries, with configurable overlap
+- Prompts include few-shot examples, confidence scoring instructions, and empty-content edge-case handling
+- Reasoner uses RAG pattern: retrieve from Knowledge service via HTTP → augment prompt → LLM reasoning
+- Added pydantic-settings to both requirements.txt files
+
