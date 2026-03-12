@@ -44,3 +44,8 @@ services:
     project: ./src/api
     language: python
     host: containerapp
+
+  ui:
+    project: ./src/ui
+    language: js
+    host: containerapp
