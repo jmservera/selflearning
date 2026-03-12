@@ -1,0 +1,16 @@
+{
+  "resourceGroup": "rg-",
+  "containerAppsEnvironment": "cae-",
+  "containerApp": "ca-",
+  "containerRegistry": "cr",
+  "aiFoundryAccount": "aif-",
+  "aiFoundryProject": "aifp-",
+  "cosmosDbAccount": "cosmos-",
+  "aiSearch": "srch-",
+  "serviceBusNamespace": "sb-",
+  "storageAccount": "st",
+  "keyVault": "kv-",
+  "logAnalyticsWorkspace": "log-",
+  "applicationInsights": "appi-",
+  "managedIdentity": "id-"
+}

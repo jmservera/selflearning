@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: selflearning
+metadata:
+  template: selflearning@0.0.1
+
+services:
+  scraper:
+    project: ./src/scraper
+    language: python
+    host: containerapp
+
+  extractor:
+    project: ./src/extractor
+    language: python
+    host: containerapp
+
+  knowledge:
+    project: ./src/knowledge
+    language: python
+    host: containerapp
+
+  reasoner:
+    project: ./src/reasoner
+    language: python
+    host: containerapp
+
+  evaluator:
+    project: ./src/evaluator
+    language: python
+    host: containerapp
+
+  orchestrator:
+    project: ./src/orchestrator
+    language: python
+    host: containerapp
+
+  healer:
+    project: ./src/healer
+    language: python
+    host: containerapp
+
+  api:
+    project: ./src/api
+    language: python
+    host: containerapp
