@@ -53,3 +53,21 @@
 - **System now complete:** Full 8-service pipeline ready: Trinity→Oracle→Tank→Niobe pipeline monitored/coordinated by me; Healer watches all for health/recovery
 - **Governance established:** User directive "commit after every learning loop iteration" merged into decisions.md; all agents committed to atomic commits per loop
 - **Next iteration:** Integration testing, first learning loop (scrape → extract → organize → reason → evaluate → improve), production deployment prep
+
+### 2026-03-12: Control UI code review — production ready with one critical fix
+- **Task:** Review Tank + Oracle's Control UI (React, TypeScript, Vite, Tailwind)
+- **Build status:** Clean build, 1495 modules, zero TypeScript errors, proper code splitting
+- **Critical issue found:** Frontend Entity/Relationship types didn't match backend API contracts
+  - Entity: `type` → `entity_type`, `sources` → `source_urls` (string array, not objects)
+  - Relationship: `source_entity` → `source_entity_id`, `target_entity` → `target_entity_id`, `relation_type` → `relationship_type`
+  - **Root cause:** Parallel development without cross-team type validation. Tank exported Python models, Oracle built frontend types independently.
+  - **Fix:** Updated `types.ts`, `GraphView.tsx`, `EntityDetail.tsx` to match backend. Verified with rebuild.
+  - **Commit:** `2bdb486` — `fix(ui): align frontend types with backend API contracts`
+- **Integration verification:**
+  - ✅ Routing: App.tsx lazy-loads ChatPage and KnowledgeExplorerPage correctly
+  - ✅ WebSocket: StatusPanel subscribes to `/ws/status`, ActivityLog to `/ws/logs`, with heartbeat + reconnection
+  - ✅ Dark theme: Consistent slate-900/800/700 + blue/emerald/amber/rose accents across Tank + Oracle components
+  - ✅ Error handling: Try/catch on all API calls, loading states, graceful degradation
+  - ✅ Dockerfile: Multi-stage build (node:20-alpine → nginx:alpine), SPA fallback, gzip, security headers
+- **Verdict:** ✅ **APPROVED WITH NOTES** — Production-ready after fix. Minor items: nginx env var substitution needs runtime config, large graph performance optimization deferred.
+- **Learning:** Frontend/backend type alignment is critical. Future work: consider shared TypeScript types generated from Python models (openapi-typescript or similar) to prevent this class of bug.
