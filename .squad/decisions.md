@@ -177,6 +177,50 @@ Orchestrator and Healer established critical cross-cutting patterns:
 - Circuit breaker data should be queryable by other services
 - Working memory can extend to shared context store if needed
 
+### Control UI Architecture (2026-03-12)
+
+**Author:** Tank (Backend Dev)  
+**Status:** Accepted
+
+Built a React SPA (`src/ui/`) with the following architecture:
+
+1. **Technology Stack** — Vite + React 18 + TypeScript, Tailwind CSS (dark mode), react-router-dom v6, lucide-react icons, Multi-stage Docker with nginx. **Rationale:** Vite for fast dev/optimized builds, React for ecosystem maturity, TypeScript for type safety, Tailwind for small bundle size without external component libs.
+
+2. **API Client Architecture** — Centralized `api.ts` with namespaced endpoints (`api.topics.list()`, `api.knowledge.search()`, `api.chat.send()`). Configurable base URL via `VITE_API_URL` environment variable. All types mirror Python Pydantic models exactly. **Rationale:** Namespaced API keeps code organized. Environment config supports dev/staging/prod. Type mirroring prevents drift between frontend/backend contracts.
+
+3. **WebSocket Strategy** — Custom `useWebSocket` hook with auto-reconnect (exponential backoff, max 10 attempts). Sends "ping" for keepalive before 30s timeout. Two endpoints: `/ws/status` (dashboard updates), `/ws/logs` (activity feed). Stateless connections. **Rationale:** Auto-reconnect handles network issues. Keepalive prevents idle disconnects. Stateless simplifies lifecycle. Two streams avoid message overload.
+
+4. **Custom Hooks Pattern** — `useDashboard` (status/progress/logs auto-refresh 5s), `useTopics` (CRUD operations), `useWebSocket` (lifecycle + messaging). **Rationale:** Encapsulates data fetching/state. Auto-refresh keeps dashboard live. Single responsibility per hook. Reusable across components.
+
+5. **Dashboard Layout** — Grid with 5 panels: StatusPanel (activity/topics/counts/health), ProgressChart (TopicCards with progress/status/priority), ActivityLog (scrolling feed), SteeringControls (topic creation form), TopicCard (reusable status widget). **Rationale:** All critical info visible. TopicCard reusable. Inline controls reduce clicks. Emoji icons instant service ID.
+
+6. **Integration with Oracle's Pages** — ChatPage and KnowledgeExplorerPage imported via `React.lazy()` with fallback placeholders. App compiles even if files don't exist. API calls fixed to use namespaced client. **Rationale:** Lazy loading splits code by route. Fallback ensures no crashes. Parallel work accelerates delivery.
+
+7. **Nginx Configuration** — SPA fallback: `try_files $uri $uri/ /index.html`. API proxy: `/api/*` → `${API_GATEWAY_URL}/`. WebSocket proxy: `/ws/*` with Upgrade headers. 1-year static caching. **Rationale:** SPA fallback standard for client-side routers. Proxy eliminates CORS. WebSocket headers required. Caching reduces bandwidth.
+
+8. **Azure Deployment** — Added `ui` service to `azure.yaml` (language: js, host: containerapp). Multi-stage Dockerfile: node:20-alpine build → nginx:alpine serve. `API_GATEWAY_URL` injected at runtime. **Rationale:** Container Apps auto-scale on HTTP traffic. Multi-stage keeps image small. Runtime config supports all environments.
+
+### Control UI Component Design (2026-03-12)
+
+**Author:** Oracle (AI/ML Engineer)  
+**Status:** Accepted
+
+Built complete Chat and Knowledge Explorer pages with 11 reusable React/TypeScript components.
+
+1. **Pure SVG Knowledge Graph** — Force-directed graph using pure SVG + CSS + React hooks, no external libraries (D3, vis.js, cytoscape). Physics simulation: Coulomb repulsion (2000/distance²), Hooke attraction (0.01 × distance), center gravity (0.001), 80% damping, 100 iterations on mount. Node size: 8 + (connectionCount × 2) pixels [8-20]. **Rationale:** External graph libs add 200KB+ bundle. SVG gives full control without learning library APIs. Physics simulation provides good-enough layout instantly.
+
+2. **Confidence Color Scale** — Three-tier coding: red (`rose-500/600`, confidence < 0.3), yellow (`amber-500/600`, 0.3 ≤ confidence < 0.7), green (`emerald-500/600`, confidence ≥ 0.7). **Rationale:** Matches human intuition (traffic light). Clear visual distinction. Thresholds align with evaluator service quality bands.
+
+3. **Dual-Variant ConfidenceBar** — Single reusable component with `variant` prop: `bar` (horizontal progress) or `ring` (circular arc). Props: `value` (0-1), `size` ('sm'|'md'|'lg'), `showLabel`, `variant`. **Rationale:** DRY principle. Bar better for detail panels; ring for inline displays. Same color logic/thresholds across both.
+
+4. **Topic-Filtered Chat** — Chat maintains full history in state with optional topic filtering (doesn't clear history, just sends context to API). Users can switch topics mid-conversation. Clear button resets. **Rationale:** Users should keep context. Topic filtering is scope hint, not boundary. Allows comparing answers across topics. Simplifies state (no per-topic storage).
+
+5. **Graph Node Highlighting** — Selected node: blue border, full opacity, name always visible. Connected nodes: full opacity, edges highlighted. Unconnected: 20% opacity. Edge opacity: 80% connected, 10% others. **Rationale:** Focuses attention without hiding structure. Clear visual feedback. Dimming preserves spatial context. Shows entity "distance" from selection.
+
+6. **Auto-Growing Textarea** — Chat input starts 1 row (48px), grows to max 4 rows (112px). Enter to send, Shift+Enter for newline. **Rationale:** Single-line minimizes space, maximizes history viewport. Auto-grow provides length feedback. 4-row cap prevents input dominating screen. Standard shortcuts match Slack/Discord/ChatGPT.
+
+7. **Expandable Citations** — Citation snippets truncated at 120 characters with "Show more" toggle. Sources section collapsed by default with count badge. **Rationale:** Reduces scrolling on multi-source answers. 120 chars enough context. Expandable design puts user in control. Badge signals richness without space.
+
 ## Governance
 
 - All meaningful changes require team consensus

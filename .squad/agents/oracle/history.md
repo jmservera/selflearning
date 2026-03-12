@@ -58,4 +58,6 @@
 - **API integration:** All components consume Tank's API client (`@/lib/api`) and type definitions (`@/lib/types`), handle loading/error/empty states
 - **Reusable patterns:** ConfidenceBar component supports both horizontal bar and ring variants, CitationCard with expandable snippets, EntityDetail panel fetches full entity data on selection
 - Total: ~63KB of TypeScript across 11 files, fully typed, complete implementations with no TODOs or placeholders
+- **Code review (Morpheus):** APPROVED — Type alignment fixed (unified Relationship type), architecture consistent, production ready
+- **Cross-agent awareness:** Tank knows about Oracle's components and where they integrate (ChatPage, KnowledgeExplorerPage lazy-loaded). Tank's API client is the single source of truth for frontend types — Oracle's components depend on it for type safety and API contracts.
 

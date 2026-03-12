@@ -77,4 +77,6 @@
   - nginx.conf with SPA fallback, API proxy to /api/*, WebSocket proxy to /ws/*
   - Added ui service to azure.yaml (language: js, host: containerapp)
 - **Build verified:** npm install + npm run build succeeded, no errors
+- **Code review (Morpheus):** APPROVED WITH NOTES — Type alignment fixed, architecture consistent, deployment ready
+- **Cross-agent awareness:** Oracle's Chat/Knowledge Explorer components use Tank's API client and type definitions. All frontend API calls use namespaced endpoints (api.chat.send, api.knowledge.search, etc.). Tank maintains type sync with backend — Oracle's components never drift from contracts.
 
