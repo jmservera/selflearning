@@ -68,14 +68,14 @@ describe('MessageBubble', () => {
   });
 
   it('expands sources when the toggle is clicked', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<MessageBubble message={assistantMessage} />);
     await user.click(screen.getByText('Sources (1)'));
     expect(screen.getByText('ML Fundamentals')).toBeInTheDocument();
   });
 
   it('collapses sources on second toggle click', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<MessageBubble message={assistantMessage} />);
     await user.click(screen.getByText('Sources (1)'));
     await user.click(screen.getByText('Sources (1)'));

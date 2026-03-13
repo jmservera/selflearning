@@ -71,7 +71,7 @@ describe('TopicCard', () => {
 
   it('calls onStartLearning when Start Learning is clicked', async () => {
     const onStartLearning = vi.fn().mockResolvedValue(undefined);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<TopicCard {...defaultProps} onStartLearning={onStartLearning} />);
     await user.click(screen.getByTitle('Start Learning'));
     expect(onStartLearning).toHaveBeenCalledWith('topic-1');
@@ -84,7 +84,7 @@ describe('TopicCard', () => {
 
   it('calls onPause when Pause is clicked', async () => {
     const onPause = vi.fn().mockResolvedValue(undefined);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <TopicCard {...defaultProps} topic={{ ...baseTopic, status: 'active' }} onPause={onPause} />
     );
@@ -99,7 +99,7 @@ describe('TopicCard', () => {
 
   it('calls onResume when Resume is clicked', async () => {
     const onResume = vi.fn().mockResolvedValue(undefined);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <TopicCard {...defaultProps} topic={{ ...baseTopic, status: 'paused' }} onResume={onResume} />
     );
@@ -109,7 +109,7 @@ describe('TopicCard', () => {
 
   it('calls onUpdatePriority with incremented value on up arrow click', async () => {
     const onUpdatePriority = vi.fn().mockResolvedValue(undefined);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<TopicCard {...defaultProps} onUpdatePriority={onUpdatePriority} />);
     await user.click(screen.getByTitle('Increase Priority'));
     expect(onUpdatePriority).toHaveBeenCalledWith('topic-1', 6);
@@ -117,7 +117,7 @@ describe('TopicCard', () => {
 
   it('calls onUpdatePriority with decremented value on down arrow click', async () => {
     const onUpdatePriority = vi.fn().mockResolvedValue(undefined);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<TopicCard {...defaultProps} onUpdatePriority={onUpdatePriority} />);
     await user.click(screen.getByTitle('Decrease Priority'));
     expect(onUpdatePriority).toHaveBeenCalledWith('topic-1', 4);

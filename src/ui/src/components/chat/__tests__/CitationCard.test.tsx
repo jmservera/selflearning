@@ -52,7 +52,7 @@ describe('CitationCard', () => {
   });
 
   it('expands the snippet when "Show more" is clicked', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CitationCard citation={longSnippetCitation} />);
     await user.click(screen.getByRole('button', { name: /show more/i }));
     expect(screen.getByText(longSnippetCitation.snippet)).toBeInTheDocument();
@@ -60,7 +60,7 @@ describe('CitationCard', () => {
   });
 
   it('collapses the snippet when "Show less" is clicked', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<CitationCard citation={longSnippetCitation} />);
     await user.click(screen.getByRole('button', { name: /show more/i }));
     await user.click(screen.getByRole('button', { name: /show less/i }));

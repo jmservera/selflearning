@@ -1,16 +1,22 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ActivityLog } from '../ActivityLog';
-import type { ActivityLog as ActivityLogType } from '@/lib/types';
+import type { ActivityLog as ActivityLogType, WSMessage } from '@/lib/types';
 
-vi.mock('@/hooks/useWebSocket', () => ({
-  useWebSocket: vi.fn(() => ({
+type OnMessageFn = (message: WSMessage) => void;
+type UseWebSocketOptions = { path: string; onMessage?: OnMessageFn };
+type UseWebSocketReturn = { messages: WSMessage[]; isConnected: boolean; lastMessage: WSMessage | null; send: (data: unknown) => void };
+
+const { useWebSocket } = vi.hoisted(() => ({
+  useWebSocket: vi.fn((_opts: UseWebSocketOptions): UseWebSocketReturn => ({
     messages: [],
     isConnected: false,
     lastMessage: null,
     send: vi.fn(),
   })),
 }));
+
+vi.mock('@/hooks/useWebSocket', () => ({ useWebSocket }));
 
 const sampleLogs: ActivityLogType[] = [
   {
@@ -113,5 +119,49 @@ describe('ActivityLog', () => {
     }];
     render(<ActivityLog initialLogs={unknownLog} />);
     expect(screen.getByText('⚙️')).toBeInTheDocument();
+  });
+
+  it('prepends a new log entry when a log_entry WS message arrives', () => {
+    const wsLog: ActivityLogType = {
+      id: 'ws-log-1',
+      timestamp: '2024-01-01T12:00:00Z',
+      service: 'reasoner',
+      action: 'reasoning_complete',
+      details: 'Reasoning done via WebSocket',
+      topic: null,
+      success: true,
+    };
+
+    // Capture the onMessage callback so we can call it after render
+    let capturedOnMessage: OnMessageFn | undefined;
+    useWebSocket.mockImplementation(({ onMessage }: UseWebSocketOptions): UseWebSocketReturn => {
+      capturedOnMessage = onMessage;
+      return { messages: [], isConnected: true, lastMessage: null, send: vi.fn() };
+    });
+
+    render(<ActivityLog initialLogs={[]} />);
+
+    // Simulate a WS message arriving after render
+    act(() => {
+      capturedOnMessage?.({ type: 'log_entry', data: wsLog as unknown as Record<string, unknown>, timestamp: wsLog.timestamp });
+    });
+
+    expect(screen.getByText('Reasoning done via WebSocket')).toBeInTheDocument();
+  });
+
+  it('ignores WS messages that are not log_entry type', () => {
+    let capturedOnMessage: OnMessageFn | undefined;
+    useWebSocket.mockImplementation(({ onMessage }: UseWebSocketOptions): UseWebSocketReturn => {
+      capturedOnMessage = onMessage;
+      return { messages: [], isConnected: false, lastMessage: null, send: vi.fn() };
+    });
+
+    render(<ActivityLog initialLogs={[]} />);
+
+    act(() => {
+      capturedOnMessage?.({ type: 'status_update', data: {}, timestamp: '2024-01-01T00:00:00Z' });
+    });
+
+    expect(screen.getByText('No activity yet')).toBeInTheDocument();
   });
 });

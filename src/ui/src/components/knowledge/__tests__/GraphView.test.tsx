@@ -105,7 +105,7 @@ describe('GraphView', () => {
   });
 
   it('calls zoom in when zoom in button is clicked', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <GraphView
         entities={mockEntities}

@@ -52,7 +52,7 @@ describe('ChatInput', () => {
   });
 
   it('enables send button when text is entered', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ChatInput {...defaultProps} />);
     await user.type(screen.getByPlaceholderText('Ask a question...'), 'Hello');
     expect(screen.getByRole('button', { name: /send/i })).toBeEnabled();
@@ -60,7 +60,7 @@ describe('ChatInput', () => {
 
   it('calls onSendMessage when form is submitted', async () => {
     const onSendMessage = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ChatInput {...defaultProps} onSendMessage={onSendMessage} />);
     await user.type(screen.getByPlaceholderText('Ask a question...'), 'Hello AI');
     await user.click(screen.getByRole('button', { name: /send/i }));
@@ -68,7 +68,7 @@ describe('ChatInput', () => {
   });
 
   it('clears the textarea after sending', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ChatInput {...defaultProps} />);
     const textarea = screen.getByPlaceholderText('Ask a question...');
     await user.type(textarea, 'Hello');
@@ -78,7 +78,7 @@ describe('ChatInput', () => {
 
   it('sends message on Enter key press', async () => {
     const onSendMessage = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ChatInput {...defaultProps} onSendMessage={onSendMessage} />);
     const textarea = screen.getByPlaceholderText('Ask a question...');
     await user.type(textarea, 'Hello{Enter}');
@@ -87,7 +87,7 @@ describe('ChatInput', () => {
 
   it('does not send on Shift+Enter', async () => {
     const onSendMessage = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ChatInput {...defaultProps} onSendMessage={onSendMessage} />);
     const textarea = screen.getByPlaceholderText('Ask a question...');
     await user.type(textarea, 'Line1{Shift>}{Enter}{/Shift}Line2');
@@ -102,14 +102,14 @@ describe('ChatInput', () => {
 
   it('calls onClearConversation when trash button is clicked', async () => {
     const onClearConversation = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ChatInput {...defaultProps} onClearConversation={onClearConversation} />);
     await user.click(screen.getByTitle('Clear conversation'));
     expect(onClearConversation).toHaveBeenCalledTimes(1);
   });
 
   it('shows topic filter dropdown when filter button is clicked', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ChatInput {...defaultProps} />);
     await user.click(screen.getByRole('button', { name: /all topics/i }));
     expect(screen.getByText('Machine Learning')).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe('ChatInput', () => {
 
   it('calls onTopicChange when a topic is selected', async () => {
     const onTopicChange = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<ChatInput {...defaultProps} onTopicChange={onTopicChange} />);
     await user.click(screen.getByRole('button', { name: /all topics/i }));
     await user.click(screen.getByText('Machine Learning'));
@@ -132,7 +132,7 @@ describe('ChatInput', () => {
 
   it('calls onSendMessage with selected topic id', async () => {
     const onSendMessage = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <ChatInput {...defaultProps} onSendMessage={onSendMessage} selectedTopic="topic-2" />
     );

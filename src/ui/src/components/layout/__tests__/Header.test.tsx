@@ -56,7 +56,7 @@ describe('Header', () => {
 
   it('calls onMenuClick when hamburger button is clicked', async () => {
     const onMenuClick = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <MemoryRouter>
         <Header onMenuClick={onMenuClick} />

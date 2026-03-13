@@ -110,6 +110,32 @@ describe('api', () => {
   });
 
   describe('knowledge', () => {
+    it('searches knowledge with all optional params', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(mockResponse({ items: [], total_count: 0, facets: {} }));
+      await api.knowledge.search({
+        q: 'ml',
+        topic: 'ai',
+        doc_type: 'entity',
+        min_confidence: 0.7,
+        limit: 20,
+        mode: 'semantic',
+      });
+      const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
+      expect(calledUrl).toContain('doc_type=entity');
+      expect(calledUrl).toContain('min_confidence=0.7');
+      expect(calledUrl).toContain('mode=semantic');
+    });
+
+    it('searches knowledge with only required q param (no optional params)', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(mockResponse({ items: [], total_count: 0, facets: {} }));
+      await api.knowledge.search({ q: 'test' });
+      const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
+      expect(calledUrl).toContain('q=test');
+      // No optional params in URL
+      expect(calledUrl).not.toContain('topic=');
+      expect(calledUrl).not.toContain('doc_type=');
+    });
+
     it('searches knowledge with query params', async () => {
       vi.mocked(fetch).mockResolvedValueOnce(mockResponse({ items: [], total_count: 0, facets: {} }));
       await api.knowledge.search({ q: 'neural network', topic: 'ml', limit: 10 });

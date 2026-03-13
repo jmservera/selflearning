@@ -46,7 +46,7 @@ describe('Sidebar', () => {
 
   it('calls onToggle when toggle button is clicked', async () => {
     const onToggle = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <MemoryRouter>
         <Sidebar isOpen={true} onToggle={onToggle} />

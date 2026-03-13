@@ -162,7 +162,7 @@ describe('KnowledgeExplorerPage', () => {
     ];
     vi.mocked(api.topics.list).mockResolvedValue(moreMockTopics);
 
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <MemoryRouter>
         <KnowledgeExplorerPage />
@@ -174,5 +174,91 @@ describe('KnowledgeExplorerPage', () => {
     await waitFor(() =>
       expect(api.topics.get).toHaveBeenCalledWith('topic-2')
     );
+  });
+
+  it('shows error when topic data fails to load', async () => {
+    vi.mocked(api.topics.get).mockRejectedValueOnce(new Error('topic load failed'));
+    render(
+      <MemoryRouter>
+        <KnowledgeExplorerPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => screen.getByText('Failed to load topic data'));
+    expect(screen.getByText('Failed to load topic data')).toBeInTheDocument();
+  });
+
+  it('performs a search and shows search error on failure', async () => {
+    vi.mocked(api.knowledge.search).mockRejectedValueOnce(new Error('search failed'));
+    const user = userEvent.setup({ delay: null });
+    render(
+      <MemoryRouter>
+        <KnowledgeExplorerPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => screen.getByPlaceholderText('Search entities, claims, or relationships...'));
+    const searchInput = screen.getByPlaceholderText('Search entities, claims, or relationships...');
+    await user.type(searchInput, 'neural');
+    await user.keyboard('{Enter}');
+    await waitFor(() => screen.getByText('Search failed'));
+    expect(screen.getByText('Search failed')).toBeInTheDocument();
+  });
+
+  it('shows empty state when no topics are loaded', async () => {
+    vi.mocked(api.topics.list).mockResolvedValue([]);
+    render(
+      <MemoryRouter>
+        <KnowledgeExplorerPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => screen.getByText('Knowledge Explorer'));
+    expect(screen.getByText('Knowledge Explorer')).toBeInTheDocument();
+  });
+
+  it('performs a successful search with entity results', async () => {
+    // Load entities in the graph so search can find them
+    const graphWithEntities = {
+      entities: [
+        {
+          id: 'e1',
+          name: 'Neural Network',
+          entity_type: 'concept',
+          confidence: 0.9,
+          description: '',
+          topic: 'ml',
+          source_urls: [],
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+        },
+      ],
+      relationships: [],
+      topic: 'topic-1',
+    };
+    vi.mocked(api.knowledge.getGraph).mockResolvedValue(graphWithEntities);
+    vi.mocked(api.knowledge.search).mockResolvedValue({
+      items: [{
+        id: 'e1',
+        doc_type: 'entity',
+        name: 'Neural Network',
+        statement: '',
+        topic: 'ml',
+        confidence: 0.9,
+        score: 0.9,
+        highlights: {},
+      }],
+      total_count: 1,
+      facets: {},
+    });
+
+    const user = userEvent.setup({ delay: null });
+    render(
+      <MemoryRouter>
+        <KnowledgeExplorerPage />
+      </MemoryRouter>
+    );
+    await waitFor(() => screen.getByPlaceholderText('Search entities, claims, or relationships...'));
+    const searchInput = screen.getByPlaceholderText('Search entities, claims, or relationships...');
+    await user.type(searchInput, 'neural');
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(api.knowledge.search).toHaveBeenCalled());
   });
 });

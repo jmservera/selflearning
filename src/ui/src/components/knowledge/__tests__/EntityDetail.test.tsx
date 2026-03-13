@@ -110,7 +110,7 @@ describe('EntityDetail', () => {
   it('calls onClose when close button is clicked', async () => {
     vi.mocked(api.knowledge.getEntity).mockResolvedValue(mockEntity);
     const onClose = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<EntityDetail entityId="e1" onClose={onClose} />);
     await user.click(screen.getByRole('button'));
     expect(onClose).toHaveBeenCalledTimes(1);

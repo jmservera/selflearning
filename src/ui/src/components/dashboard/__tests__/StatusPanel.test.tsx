@@ -78,4 +78,22 @@ describe('StatusPanel', () => {
     render(<StatusPanel initialStatus={{ ...mockStatus, current_activity: 'idle' }} />);
     expect(screen.getByText('idle')).toBeInTheDocument();
   });
+
+  it('shows health indicator for degraded system health', () => {
+    const { container } = render(
+      <StatusPanel initialStatus={{ ...mockStatus, system_health: 'degraded' }} />
+    );
+    // The health indicator circle should use amber color
+    const circle = container.querySelector('.text-amber-500');
+    expect(circle).toBeInTheDocument();
+  });
+
+  it('shows health indicator for unhealthy system health', () => {
+    const { container } = render(
+      <StatusPanel initialStatus={{ ...mockStatus, system_health: 'unhealthy' }} />
+    );
+    // Non-healthy, non-degraded → rose color
+    const circle = container.querySelector('.text-rose-500');
+    expect(circle).toBeInTheDocument();
+  });
 });
