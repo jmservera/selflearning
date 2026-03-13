@@ -517,3 +517,414 @@ class TestTopicStats:
         bio_stats = store.get_topic_stats("bio")
         assert ml_stats["entity_count"] == 1
         assert bio_stats["entity_count"] == 1
+
+
+# ============================================================================
+# FastAPI Endpoint Tests
+# ============================================================================
+
+import sys  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
+
+import pytest_asyncio  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+# azure.monitor.opentelemetry is not in the test dependency set; pre-mock it
+# so that `import knowledge.main` succeeds without the package installed.
+sys.modules.setdefault("azure.monitor.opentelemetry", MagicMock())
+
+import knowledge.main as _knowledge_mod  # noqa: E402
+from knowledge.models import (  # noqa: E402
+    BulkIngestResponse,
+    Claim,
+    DocType,
+    Entity,
+    KnowledgeUnit,
+    Relationship,
+    SearchResult,
+    SearchResultItem,
+    Source,
+    TopicStats,
+    TopicSummary,
+)
+
+
+# ── Test data helpers ─────────────────────────────────────────────────────
+
+
+def _make_entity(**overrides) -> Entity:
+    defaults: dict = {"name": "Neural Network", "topic": "ml"}
+    defaults.update(overrides)
+    return Entity(**defaults)
+
+
+def _make_relationship(**overrides) -> Relationship:
+    defaults: dict = {
+        "source_entity_id": "e1",
+        "target_entity_id": "e2",
+        "relationship_type": "is_a",
+        "topic": "ml",
+    }
+    defaults.update(overrides)
+    return Relationship(**defaults)
+
+
+def _make_claim(**overrides) -> Claim:
+    defaults: dict = {
+        "statement": "Neural networks are universal function approximators",
+        "topic": "ml",
+    }
+    defaults.update(overrides)
+    return Claim(**defaults)
+
+
+def _make_source(**overrides) -> Source:
+    defaults: dict = {"url": "https://example.com/paper", "topic": "ml"}
+    defaults.update(overrides)
+    return Source(**defaults)
+
+
+# ============================================================================
+# TestFastAPIEndpoints
+# ============================================================================
+
+
+class TestFastAPIEndpoints:
+    """Tests for all 13 Knowledge Service FastAPI endpoints.
+
+    Uses httpx.AsyncClient + ASGITransport against the real FastAPI app
+    with module-level singletons (store, search, consumer) replaced by
+    AsyncMocks — the same pattern as test_orchestrator.py / test_healer.py.
+    """
+
+    @pytest_asyncio.fixture
+    async def client(self):
+        """Swap module-level singletons for AsyncMocks; yield (client, store, search)."""
+        orig_store = _knowledge_mod.store
+        orig_search = _knowledge_mod.search
+        orig_consumer = _knowledge_mod.consumer
+
+        mock_store = AsyncMock()
+        mock_search = AsyncMock()
+        mock_consumer = AsyncMock()
+
+        _knowledge_mod.store = mock_store
+        _knowledge_mod.search = mock_search
+        _knowledge_mod.consumer = mock_consumer
+
+        transport = ASGITransport(app=_knowledge_mod.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c, mock_store, mock_search
+
+        _knowledge_mod.store = orig_store
+        _knowledge_mod.search = orig_search
+        _knowledge_mod.consumer = orig_consumer
+
+    # ── 1. GET /health ────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_health_check(self, client):
+        c, _, _ = client
+        resp = await c.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "healthy"
+        assert data["service"] == "knowledge-service"
+
+    # ── 2. POST /entities ─────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_upsert_entity_success(self, client):
+        c, mock_store, mock_search = client
+        entity = _make_entity()
+        mock_store.upsert_entity.return_value = entity
+        resp = await c.post("/entities", json={"name": "Neural Network", "topic": "ml"})
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["name"] == "Neural Network"
+        assert data["topic"] == "ml"
+        mock_store.upsert_entity.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_upsert_entity_search_failure_nonfatal(self, client):
+        """Search indexing failures must not cause the entity upsert to fail."""
+        c, mock_store, mock_search = client
+        mock_store.upsert_entity.return_value = _make_entity()
+        mock_search.ensure_index.side_effect = RuntimeError("Search unavailable")
+        resp = await c.post("/entities", json={"name": "Neural Network", "topic": "ml"})
+        assert resp.status_code == 201
+
+    # ── 3. GET /entities/{id} ─────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_get_entity_success(self, client):
+        c, mock_store, _ = client
+        entity = _make_entity(id="entity-1")
+        mock_store.get_entity.return_value = entity
+        resp = await c.get("/entities/entity-1")
+        assert resp.status_code == 200
+        assert resp.json()["id"] == "entity-1"
+
+    @pytest.mark.asyncio
+    async def test_get_entity_not_found(self, client):
+        c, mock_store, _ = client
+        mock_store.get_entity.return_value = None
+        resp = await c.get("/entities/nonexistent-id")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+    # ── 4. GET /entities/search ───────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_search_entities_returns_list(self, client):
+        c, mock_store, _ = client
+        mock_store.search_entities.return_value = [_make_entity(name=f"E{i}") for i in range(3)]
+        resp = await c.get("/entities/search")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 3
+
+    @pytest.mark.asyncio
+    async def test_search_entities_with_filters(self, client):
+        c, mock_store, _ = client
+        mock_store.search_entities.return_value = [_make_entity()]
+        resp = await c.get("/entities/search?topic=ml&q=neural&min_confidence=0.5")
+        assert resp.status_code == 200
+        kwargs = mock_store.search_entities.call_args.kwargs
+        assert kwargs["topic"] == "ml"
+        assert kwargs["query_text"] == "neural"
+        assert kwargs["min_confidence"] == pytest.approx(0.5)
+
+    # ── 5. POST /relationships ────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_upsert_relationship_success(self, client):
+        c, mock_store, _ = client
+        rel = _make_relationship()
+        mock_store.upsert_relationship.return_value = rel
+        resp = await c.post(
+            "/relationships",
+            json={
+                "source_entity_id": "e1",
+                "target_entity_id": "e2",
+                "relationship_type": "is_a",
+                "topic": "ml",
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["relationship_type"] == "is_a"
+        mock_store.upsert_relationship.assert_called_once()
+
+    # ── 6. GET /relationships ─────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_query_relationships_success(self, client):
+        c, mock_store, _ = client
+        mock_store.query_relationships.return_value = [_make_relationship(), _make_relationship()]
+        resp = await c.get("/relationships?topic=ml")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 2
+
+    @pytest.mark.asyncio
+    async def test_query_relationships_empty(self, client):
+        c, mock_store, _ = client
+        mock_store.query_relationships.return_value = []
+        resp = await c.get("/relationships")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    # ── 7. POST /claims ───────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_upsert_claim_success(self, client):
+        c, mock_store, mock_search = client
+        claim = _make_claim()
+        mock_store.upsert_claim.return_value = claim
+        resp = await c.post(
+            "/claims",
+            json={
+                "statement": "Neural networks are universal function approximators",
+                "topic": "ml",
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["statement"] == "Neural networks are universal function approximators"
+
+    @pytest.mark.asyncio
+    async def test_upsert_claim_search_failure_nonfatal(self, client):
+        c, mock_store, mock_search = client
+        mock_store.upsert_claim.return_value = _make_claim()
+        mock_search.ensure_index.side_effect = RuntimeError("Search down")
+        resp = await c.post("/claims", json={"statement": "A claim", "topic": "ml"})
+        assert resp.status_code == 201
+
+    # ── 8. GET /claims ────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_query_claims_success(self, client):
+        c, mock_store, _ = client
+        mock_store.query_claims.return_value = [_make_claim(), _make_claim()]
+        resp = await c.get("/claims?topic=ml")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 2
+
+    @pytest.mark.asyncio
+    async def test_query_claims_with_filters(self, client):
+        c, mock_store, _ = client
+        mock_store.query_claims.return_value = []
+        resp = await c.get("/claims?verified_only=true&min_confidence=0.8")
+        assert resp.status_code == 200
+        kwargs = mock_store.query_claims.call_args.kwargs
+        assert kwargs["verified_only"] is True
+        assert kwargs["min_confidence"] == pytest.approx(0.8)
+
+    # ── 9. POST /sources ──────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_upsert_source_success(self, client):
+        c, mock_store, _ = client
+        mock_store.upsert_source.return_value = _make_source()
+        resp = await c.post(
+            "/sources",
+            json={"url": "https://example.com/paper", "topic": "ml"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["url"] == "https://example.com/paper"
+
+    # ── 10. GET /search ───────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_success(self, client):
+        c, _, mock_search = client
+        result = SearchResult(
+            items=[
+                SearchResultItem(
+                    id="e1",
+                    doc_type=DocType.ENTITY,
+                    name="Neural Network",
+                    topic="ml",
+                    confidence=0.9,
+                    score=0.85,
+                )
+            ],
+            total_count=1,
+        )
+        mock_search.hybrid_search.return_value = result
+        resp = await c.get("/search?q=neural+network&topic=ml")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_count"] == 1
+        assert data["items"][0]["name"] == "Neural Network"
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_invalid_mode(self, client):
+        c, _, _ = client
+        resp = await c.get("/search?q=neural&mode=invalid")
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_hybrid_search_all_modes(self, client):
+        c, _, mock_search = client
+        mock_search.hybrid_search.return_value = SearchResult(items=[], total_count=0)
+        for mode in ("hybrid", "vector", "keyword"):
+            resp = await c.get(f"/search?q=test&mode={mode}")
+            assert resp.status_code == 200
+
+    # ── 11. POST /bulk ────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_bulk_ingest_success(self, client):
+        c, mock_store, _ = client
+        mock_store.bulk_ingest.return_value = BulkIngestResponse(
+            entities_upserted=2, claims_upserted=1
+        )
+        payload = {
+            "entities": [
+                {"name": "Neural Network", "topic": "ml"},
+                {"name": "Backpropagation", "topic": "ml"},
+            ],
+            "claims": [{"statement": "NNs are powerful", "topic": "ml"}],
+        }
+        resp = await c.post("/bulk", json=payload)
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["entities_upserted"] == 2
+        assert data["claims_upserted"] == 1
+        mock_store.bulk_ingest.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_bulk_ingest_empty_payload(self, client):
+        c, mock_store, _ = client
+        mock_store.bulk_ingest.return_value = BulkIngestResponse()
+        resp = await c.post("/bulk", json={})
+        assert resp.status_code == 201
+        assert resp.json()["entities_upserted"] == 0
+
+    @pytest.mark.asyncio
+    async def test_bulk_ingest_search_failure_nonfatal(self, client):
+        c, mock_store, mock_search = client
+        mock_store.bulk_ingest.return_value = BulkIngestResponse(entities_upserted=1)
+        mock_search.ensure_index.side_effect = RuntimeError("Search unavailable")
+        resp = await c.post(
+            "/bulk", json={"entities": [{"name": "Neural Network", "topic": "ml"}]}
+        )
+        assert resp.status_code == 201
+
+    # ── 12. GET /topics/{topic}/stats ─────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_topic_stats_success(self, client):
+        c, mock_store, _ = client
+        mock_store.get_topic_stats.return_value = TopicStats(
+            topic="ml",
+            entity_count=10,
+            relationship_count=5,
+            claim_count=7,
+            source_count=3,
+            avg_confidence=0.85,
+        )
+        resp = await c.get("/topics/ml/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["topic"] == "ml"
+        assert data["entity_count"] == 10
+        assert data["claim_count"] == 7
+        assert data["avg_confidence"] == pytest.approx(0.85)
+
+    # ── 13. GET /topics/{topic}/summary ───────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_topic_summary_with_entities_and_claims(self, client):
+        c, mock_store, _ = client
+        mock_store.get_topic_summary.return_value = {
+            "topic": "ml",
+            "top_entities": [
+                {"name": "Neural Network", "confidence": 0.95},
+                {"name": "Backpropagation", "confidence": 0.92},
+            ],
+            "top_claims": [
+                {"statement": "NNs approximate any function", "confidence": 0.9}
+            ],
+        }
+        resp = await c.get("/topics/ml/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["topic"] == "ml"
+        assert "Neural Network" in data["key_entities"]
+        assert "NNs approximate any function" in data["key_claims"]
+        assert data["confidence"] > 0
+
+    @pytest.mark.asyncio
+    async def test_topic_summary_empty_topic(self, client):
+        c, mock_store, _ = client
+        mock_store.get_topic_summary.return_value = {
+            "topic": "empty",
+            "top_entities": [],
+            "top_claims": [],
+        }
+        resp = await c.get("/topics/empty/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["topic"] == "empty"
+        assert data["key_entities"] == []
+        assert data["key_claims"] == []
+        assert data["confidence"] == pytest.approx(0.0)
