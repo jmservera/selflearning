@@ -101,9 +101,13 @@ jobs:
               AFTER="${{ github.sha }}"
             fi
 
-            # On the very first push to a branch, before is the null SHA
+            # On the very first push to a branch, before is the null SHA.
+            # Diff against the empty-tree object so every file in the initial
+            # commit is considered changed (handles single-commit bootstraps and
+            # multi-commit first pushes equally).
             if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
-              CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+              EMPTY_TREE=$(git hash-object -t tree /dev/null)
+              CHANGED_FILES=$(git diff --name-only "$EMPTY_TREE" "$AFTER" 2>/dev/null || echo "")
             else
               git fetch --depth=1 origin "$BEFORE" 2>/dev/null || true
               CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null || echo "")
@@ -188,24 +192,27 @@ jobs:
           az acr build \
             --registry "${{ vars.ACR_NAME }}" \
             --image "selflearning-${{ matrix.service }}:${{ steps.tags.outputs.short_sha }}" \
-            --file "src/${{ matrix.service }}/Dockerfile" \
+            --file "Dockerfile" \
             "src/${{ matrix.service }}"
 
-      # ── Tag :latest (and :pr-N if applicable) after the build ─────────────────
+      # ── Tag additional image aliases after the build ─────────────────────────
       - name: Tag additional image aliases
         run: |
           ACR="${{ vars.ACR_NAME }}"
           REPO="selflearning-${{ matrix.service }}"
           SHORT_SHA="${{ steps.tags.outputs.short_sha }}"
 
-          # Always tag :latest
-          az acr import \
-            --name "$ACR" \
-            --source "${ACR}.azurecr.io/${REPO}:${SHORT_SHA}" \
-            --image "${REPO}:latest" \
-            --force
+          # Tag :latest only on trusted branch pushes (not PRs) so unmerged
+          # code can never overwrite the production image.
+          if [[ "${{ github.event_name }}" == "push" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            az acr import \
+              --name "$ACR" \
+              --source "${ACR}.azurecr.io/${REPO}:${SHORT_SHA}" \
+              --image "${REPO}:latest" \
+              --force
+          fi
 
-          # Tag :pr-N for pull-request builds
+          # Tag :pr-N for pull-request builds only
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             PR_NUMBER="${{ github.event.pull_request.number }}"
             az acr import \
@@ -231,7 +238,9 @@ jobs:
             echo "| Registry | \`${ACR_SERVER}\` |"
             echo "| Repository | \`${REPO}\` |"
             echo "| SHA tag | \`${SHORT_SHA}\` |"
-            echo "| Latest tag | \`latest\` |"
+            if [[ "${{ github.event_name }}" == "push" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              echo "| Latest tag | \`latest\` |"
+            fi
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
               echo "| PR tag | \`pr-${{ github.event.pull_request.number }}\` |"
             fi
