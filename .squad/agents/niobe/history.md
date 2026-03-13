@@ -50,3 +50,18 @@
 - **PR #16 (Docker compose):** BLOCKED by emulator authentication issue. Tank identified missing conditional auth pattern — services default to managed identity (production) but emulators require account key authentication. Affects Knowledge, Scraper, Orchestrator, Extractor services. Solution pattern documented, awaiting implementation fixes from Trinity/Oracle/Morpheus.
 - **Impact:** 3 PRs merged (closing issues #4, #5, #6). 3 new patterns established in decisions.md. 1 high-priority blocker identified for local development.
 
+
+### 2026-03-13: PR #21 Review — Scraper and Extractor Endpoint Tests
+- Reviewed and approved PR #21 by @copilot coding agent: added FastAPI endpoint tests for Scraper and Extractor services (closes issue #3)
+- **Test results:** 71/71 tests pass (36 existing + 9 new endpoint tests: 5 scraper, 4 extractor)
+- **Coverage added:**
+  - Scraper: 5 tests for /health and /status endpoints (healthy state, degraded blob/cosmos, degraded service bus, consumer/publisher stats)
+  - Extractor: 4 tests for /health and /status endpoints (healthy state, degraded llm/blob, degraded service_bus/pipeline)
+- **Code quality observations:**
+  - Follows established patterns from test_knowledge.py (AsyncClient + ASGITransport, module-level singleton mocking, _setup_service_path)
+  - Degraded state testing covers all critical components (blob storage, cosmos DB, service bus, LLM client, extraction pipeline)
+  - Status endpoint implementation added to src/extractor/main.py (+21 lines, -1): version, started_at, components health, consumer_running flag
+  - Scraper tests validate crawl_history stats integration via mock_history.get_crawl_stats()
+  - Extractor tests validate all 4 component states (llm_client, blob_storage, service_bus, pipeline)
+- **No gaps identified:** Both services now have comprehensive endpoint coverage matching Knowledge service test quality
+- **Decision:** Marked PR ready and approved. Tests demonstrate correct graceful degradation behavior for all Azure service dependencies.
