@@ -195,7 +195,7 @@ The system is composed of **8 services**, each deployed as an Azure Container Ap
 | **Secrets** | Azure Key Vault | Standard | API keys, connection strings, certificates |
 | **Monitoring** | Azure Monitor + Application Insights | Pay-as-you-go | Observability across all services |
 | **Log Analytics** | Log Analytics Workspace | Pay-as-you-go | Centralized logging |
-| **Identity** | Managed Identity (System-assigned) | — | Service-to-service auth, no secrets in code |
+| **Identity** | Managed Identity (System-assigned) | — | Azure SDK auth for cloud resources (Cosmos DB, Service Bus, Blob Storage, AI Foundry); no secrets in code |
 
 ### AI Foundry Configuration
 
@@ -532,7 +532,7 @@ All services receive these via Container Apps secrets (sourced from Key Vault):
 | `AZURE_SEARCH_ENDPOINT` | AI Search | Vector search endpoint |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | App Insights | Telemetry |
 
-Authentication uses **managed identity** everywhere — no connection strings or API keys in environment variables.
+Authentication to Azure cloud resources (Cosmos DB, Service Bus, Blob Storage, AI Foundry) uses **managed identity** — no connection strings or API keys in environment variables. Internal service-to-service HTTP calls within the Container Apps environment are currently unauthenticated; managed-identity-based HTTP auth between services is *planned*.
 
 ---
 

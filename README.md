@@ -111,12 +111,13 @@ docker compose up --build
 cp .env.example .env
 # Fill in .env with your Azure resource endpoints
 
-# Install dependencies for a service
+# Create and populate a virtual environment, then install dependencies for a service
+uv venv .venv
 cd src/<service>
-uv pip install -r pyproject.toml
+uv pip install --python ../../.venv/bin/python -r pyproject.toml
 
-# Run a service locally
-python -m uvicorn main:app --reload --port 8000
+# Run a service locally (activate the venv first, or prefix with the full path)
+../../.venv/bin/python -m uvicorn main:app --reload --port 8000
 ```
 
 ## Project Structure

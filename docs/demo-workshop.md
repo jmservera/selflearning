@@ -56,7 +56,7 @@ done
 - UI build succeeds (`vite build` completes successfully)
 
 > 📝 **ADAPT**  
-> `uv` is the project's package manager. If you prefer plain pip, run `pip install -r pyproject.toml` for each service individually instead. If your repo is not a web app, swap the UI build step for the build or lint command your repo already uses.
+> `uv` is the project's package manager. If you prefer plain pip, run `pip install .` inside each service directory (`src/<service>/`) individually instead. If your repo is not a web app, swap the UI build step for the build or lint command your repo already uses.
 
 ## Workshop Flow at a Glance
 
