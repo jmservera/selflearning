@@ -35,6 +35,14 @@ cd selflearning
 gh auth status
 gh repo view --json nameWithOwner,defaultBranchRef,url
 git config user.name
+
+# Create a virtual environment and install all dependencies (requires uv)
+uv venv .venv
+uv pip install --python .venv/bin/python -r tests/pyproject.toml
+for svc in api scraper extractor knowledge reasoner evaluator orchestrator healer; do
+  uv pip install --python .venv/bin/python -r "src/${svc}/pyproject.toml"
+done
+
 ./.venv/bin/python -m pytest tests/ -q
 (cd src/ui && npm run build)
 ```
@@ -44,11 +52,11 @@ git config user.name
 - `gh auth status` shows a logged-in GitHub user
 - `gh repo view` resolves to `jmservera/selflearning`
 - `git config user.name` returns your display name
-- Tests pass (`494 passed, 1 skipped` at the time this workshop was written)
+- Tests pass (count was `494 passed, 1 skipped` when this workshop was written; your count may differ as the codebase evolves)
 - UI build succeeds (`vite build` completes successfully)
 
 > 📝 **ADAPT**  
-> If your repo does not have a checked-in `.venv`, use your normal Python environment instead. If your project is not a web app, swap the UI build step for the build or lint command your repo already uses.
+> `uv` is the project's package manager. If you prefer plain pip, run `pip install -r pyproject.toml` for each service individually instead. If your repo is not a web app, swap the UI build step for the build or lint command your repo already uses.
 
 ## Workshop Flow at a Glance
 

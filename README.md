@@ -113,7 +113,7 @@ cp .env.example .env
 
 # Install dependencies for a service
 cd src/<service>
-pip install -r pyproject.toml
+uv pip install -r pyproject.toml
 
 # Run a service locally
 python -m uvicorn main:app --reload --port 8000
@@ -135,7 +135,8 @@ selflearning/
 │   ├── evaluator/          # Self-evaluation
 │   ├── orchestrator/       # Pipeline orchestration
 │   ├── healer/             # Self-healing
-│   └── api/                # API gateway
+│   ├── api/                # API gateway
+│   └── ui/                 # React web UI
 ├── tests/                  # Integration tests
 └── docs/                   # Documentation
 ```

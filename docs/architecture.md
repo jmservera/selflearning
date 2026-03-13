@@ -176,7 +176,7 @@ The system is composed of **8 services**, each deployed as an Azure Container Ap
   - Knowledge query: search and browse the knowledge graph
   - Expertise dashboard: view scorecards, learning progress, system health
   - Learning control: pause, resume, adjust learning strategies
-  - Authentication via Microsoft Entra ID (Azure AD)
+  - Authentication via Microsoft Entra ID (Azure AD) *(planned — not yet implemented)*
 
 ---
 
@@ -621,8 +621,8 @@ selflearning/
 ### Synchronous Communication
 
 - Knowledge Service exposes an internal HTTP API (Container Apps internal ingress) for graph queries
-- API Gateway exposes external HTTP API (Container Apps external ingress with authentication)
-- All internal service-to-service calls use managed identity for authentication
+- API Gateway exposes external HTTP API (Container Apps external ingress); external authentication via Microsoft Entra ID is *planned but not yet implemented*
+- Internal service-to-service HTTP calls are unauthenticated within the Container Apps environment; managed identity is used for all Azure SDK connections (Cosmos DB, Service Bus, Blob Storage, AI Foundry). Full managed-identity HTTP auth between services is *planned*.
 
 ---
 
@@ -630,7 +630,7 @@ selflearning/
 
 | Concern | Approach |
 |---|---|
-| **Authentication** | Microsoft Entra ID for external users; managed identity for service-to-service |
+| **Authentication** | Microsoft Entra ID for external users *(planned)*; managed identity for Azure SDK connections (Cosmos DB, Service Bus, Blob Storage, AI Foundry) *(implemented)* |
 | **Authorization** | RBAC on all Azure resources; least-privilege per service |
 | **Secrets** | Key Vault for any external secrets; managed identity eliminates most secrets |
 | **Network** | Container Apps Environment provides internal network isolation; external ingress only on API Gateway |
