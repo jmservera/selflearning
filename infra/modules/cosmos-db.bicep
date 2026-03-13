@@ -113,6 +113,52 @@ resource evaluationsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabase
   }
 }
 
+resource topicsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: database
+  name: 'topics'
+  properties: {
+    resource: {
+      id: 'topics'
+      partitionKey: {
+        paths: ['/topic']
+        kind: 'Hash'
+        version: 2
+      }
+    }
+  }
+}
+
+resource strategiesContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: database
+  name: 'strategies'
+  properties: {
+    resource: {
+      id: 'strategies'
+      partitionKey: {
+        paths: ['/topic']
+        kind: 'Hash'
+        version: 2
+      }
+    }
+  }
+}
+
+resource crawlHistoryContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: database
+  name: 'crawl-history'
+  properties: {
+    resource: {
+      id: 'crawl-history'
+      partitionKey: {
+        paths: ['/url']
+        kind: 'Hash'
+        version: 2
+      }
+      defaultTtl: 2592000 // 30 days for crawl history
+    }
+  }
+}
+
 output accountId string = cosmosAccount.id
 output accountName string = cosmosAccount.name
 output endpoint string = cosmosAccount.properties.documentEndpoint

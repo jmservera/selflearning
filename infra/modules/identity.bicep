@@ -22,6 +22,9 @@ param keyVaultName string
 @description('AI Search name for RBAC')
 param aiSearchName string
 
+@description('AI Foundry account name for RBAC')
+param aiFoundryAccountName string
+
 @description('Container Registry name for AcrPull RBAC')
 param containerRegistryName string
 
@@ -124,6 +127,24 @@ resource aiSearchRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04
   }
 }
 
+// AI Foundry — Cognitive Services OpenAI User
+resource aiFoundryAccount 'Microsoft.CognitiveServices/accounts@2024-10-01' existing = {
+  name: aiFoundryAccountName
+}
+
+resource aiFoundryRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiFoundryAccount.id, managedIdentity.id, '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
+  scope: aiFoundryAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    ) // Cognitive Services OpenAI User
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // AcrPull — Container Registry
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: containerRegistryName
@@ -139,6 +160,21 @@ resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
     ) // AcrPull
     principalId: managedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
+  }
+}
+
+// Healer — Container Apps management (Contributor on resource group)
+resource healerContainerAppsRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, managedIdentity.id, 'b24988ac-6180-42a0-ab88-20f7382dd24c', 'healer-ca-mgmt')
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'b24988ac-6180-42a0-ab88-20f7382dd24c'
+    ) // Contributor — needed by healer to restart/scale Container Apps
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+    description: 'Healer service: Container Apps restart and scale management'
   }
 }
 
