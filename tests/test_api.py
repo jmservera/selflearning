@@ -493,7 +493,31 @@ class TestHealthEndpoints:
             assert "latency_ms" in service_info
 
 
-class TestWebSocket:
+class TestOpenAPIDocumentation:
+    """Test that Swagger UI and ReDoc documentation endpoints are available."""
+
+    @pytest.mark.asyncio
+    async def test_swagger_ui_loads(self, api_client):
+        resp = await api_client.get("/docs")
+        assert resp.status_code == 200
+        assert "swagger" in resp.text.lower() or "openapi" in resp.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_redoc_loads(self, api_client):
+        resp = await api_client.get("/redoc")
+        assert resp.status_code == 200
+        assert "redoc" in resp.text.lower() or "openapi" in resp.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_openapi_json_schema(self, api_client):
+        resp = await api_client.get("/openapi.json")
+        assert resp.status_code == 200
+        schema = resp.json()
+        assert schema["info"]["title"] == "API Gateway (Test Contract)"
+        assert "paths" in schema
+
+
+
     """Test WebSocket connection for real-time updates."""
 
     @pytest.mark.asyncio
