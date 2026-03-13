@@ -97,8 +97,10 @@ class Entity(BaseModel):
         """Accept singular source_url from extractor and append to source_urls list."""
         if isinstance(data, dict):
             source_url = data.pop("source_url", None)
-            if source_url and not data.get("source_urls"):
-                data["source_urls"] = [source_url]
+            if source_url:
+                existing = data.get("source_urls") or []
+                if source_url not in existing:
+                    data["source_urls"] = list(existing) + [source_url]
         return data
 
 

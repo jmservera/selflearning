@@ -272,13 +272,24 @@ class KnowledgeServiceClient:
         topic: str,
         entity_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Retrieve relationships for a topic or specific entities."""
+        """Retrieve relationships for a topic or specific entities.
+
+        Note: the Knowledge API accepts a single ``entity_id`` filter per
+        request.  When multiple entity_ids are provided only the first is used;
+        callers that need all entities should make multiple requests.
+        """
         with tracer.start_as_current_span("knowledge.get_relationships") as span:
             span.set_attribute("knowledge.topic", topic)
             try:
                 params: dict[str, Any] = {"topic": topic}
                 if entity_ids:
-                    # Knowledge API accepts a single entity_id; pass the first one
+                    if len(entity_ids) > 1:
+                        logger.warning(
+                            "get_relationships received %d entity_ids; Knowledge API "
+                            "only supports a single entity_id filter — using entity_id=%s",
+                            len(entity_ids),
+                            entity_ids[0],
+                        )
                     params["entity_id"] = entity_ids[0]
                 resp = await self._client.get("/relationships", params=params)
                 resp.raise_for_status()

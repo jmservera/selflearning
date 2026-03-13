@@ -290,7 +290,7 @@ class TestContractBoundary2_ExtractorKnowledge:
             "topic": "t",
             "source_url": "https://example.com/paper",
         })
-        assert "https://example.com/paper" in entity.source_urls
+        assert entity.source_urls == ["https://example.com/paper"]
 
     def test_relationship_without_topic_defaults_to_empty_string(self) -> None:
         """Extractor Relationship (no topic field) validates with empty default topic."""
@@ -324,7 +324,7 @@ class TestContractBoundary2_ExtractorKnowledge:
         # Entities should be properly typed
         assert unit.entities[0].entity_type == EntityType.CONCEPT
         # source_url should be in source_urls
-        assert "https://example.com" in unit.entities[0].source_urls
+        assert unit.entities[0].source_urls[0] == "https://example.com"
         # Relationship should have empty topic default
         assert unit.relationships[0].topic == ""
         # Claims should have the correct statement

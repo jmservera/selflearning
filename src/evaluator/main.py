@@ -1,6 +1,7 @@
 """Evaluator service — FastAPI application."""
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -192,7 +193,7 @@ async def evaluate_topic(topic: str) -> EvaluationReport:
             ]
             await publisher.publish(
                 {
-                    "request_id": str(id(report)),
+                    "request_id": str(uuid.uuid4()),
                     "topic": topic,
                     "overall_score": round(scorecard.overall_score / 100.0, 4),
                     "coverage_score": round(scorecard.coverage_score / 100.0, 4),
