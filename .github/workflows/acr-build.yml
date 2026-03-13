@@ -1,0 +1,238 @@
+# acr-build.yml — GitHub Actions workflow for building Docker images on ACR
+#
+# Azure setup required:
+#   1. Create a service principal:
+#        az ad sp create-for-rbac --name "selflearning-gha" --role AcrPush \
+#          --scopes /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ContainerRegistry/registries/{acr}
+#
+#   2. Add a federated credential for OIDC (no stored secrets):
+#        az ad app federated-credential create \
+#          --id {app-id} \
+#          --parameters '{"name":"gha-main","issuer":"https://token.actions.githubusercontent.com",
+#                         "subject":"repo:jmservera/selflearning:ref:refs/heads/main",
+#                         "audiences":["api://AzureADTokenExchange"]}'
+#        # Repeat for pull_request subject: "repo:jmservera/selflearning:pull_request"
+#
+#   3. Set these repository variables (Settings → Secrets and variables → Actions → Variables):
+#        AZURE_CLIENT_ID       — service principal app (client) ID
+#        AZURE_TENANT_ID       — Azure AD tenant ID
+#        AZURE_SUBSCRIPTION_ID — Azure subscription ID
+#        ACR_NAME              — ACR registry name (without .azurecr.io)
+#
+#   Optionally set ACR_RESOURCE_GROUP if the registry is in a different resource group.
+
+name: ACR Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      # docker-compose.yml is the source of truth for build contexts and base
+      # images; any change to it triggers a full rebuild of all services so that
+      # ACR images stay in sync with what local `docker compose up --build` would
+      # produce.
+      - "docker-compose.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "docker-compose.yml"
+
+  workflow_dispatch:
+    inputs:
+      services:
+        description: >
+          Comma-separated list of services to build
+          (api, scraper, extractor, knowledge, reasoner, evaluator, orchestrator, healer, ui).
+          Leave empty to build all services.
+        required: false
+        default: ""
+
+permissions:
+  id-token: write   # Required for OIDC federated credential login
+  contents: read
+
+env:
+  ALL_SERVICES: "api scraper extractor knowledge reasoner evaluator orchestrator healer ui"
+
+jobs:
+  # ─── Detect which services changed ────────────────────────────────────────────
+  detect-changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+      has_services: ${{ steps.build-matrix.outputs.has_services }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Fetch two commits so we can diff against the previous push
+          fetch-depth: 2
+
+      - name: Resolve services to build
+        id: build-matrix
+        run: |
+          ALL_SERVICES="${{ env.ALL_SERVICES }}"
+
+          # ── workflow_dispatch with explicit list ──
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            INPUT="${{ github.event.inputs.services }}"
+            if [[ -n "$INPUT" ]]; then
+              # Normalise: replace commas with spaces, strip extra whitespace
+              SERVICES=$(echo "$INPUT" | tr ',' ' ' | tr -s ' ')
+            else
+              SERVICES="$ALL_SERVICES"
+            fi
+
+          # ── push / pull_request event: detect from git diff ──
+          else
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              # For PRs, diff the PR head against the base branch
+              BEFORE="${{ github.event.pull_request.base.sha }}"
+              AFTER="${{ github.sha }}"
+            else
+              BEFORE="${{ github.event.before }}"
+              AFTER="${{ github.sha }}"
+            fi
+
+            # On the very first push to a branch, before is the null SHA
+            if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+              CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+            else
+              git fetch --depth=1 origin "$BEFORE" 2>/dev/null || true
+              CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER" 2>/dev/null || echo "")
+            fi
+
+            # Also rebuild everything if docker-compose.yml changed
+            if echo "$CHANGED_FILES" | grep -q "^docker-compose\.yml$"; then
+              SERVICES="$ALL_SERVICES"
+            else
+              SERVICES=""
+              for svc in $ALL_SERVICES; do
+                if echo "$CHANGED_FILES" | grep -q "^src/${svc}/"; then
+                  SERVICES="$SERVICES $svc"
+                fi
+              done
+              SERVICES=$(echo "$SERVICES" | xargs)   # trim leading/trailing spaces
+            fi
+          fi
+
+          echo "Services to build: $SERVICES"
+
+          if [[ -z "$SERVICES" ]]; then
+            echo "has_services=false" >> "$GITHUB_OUTPUT"
+            echo "matrix={\"service\":[]}" >> "$GITHUB_OUTPUT"
+          else
+            # Build JSON array for the matrix
+            JSON_ARRAY=$(echo "$SERVICES" | tr ' ' '\n' | jq -R . | jq -sc .)
+            echo "has_services=true" >> "$GITHUB_OUTPUT"
+            echo "matrix={\"service\":${JSON_ARRAY}}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ─── Build images on ACR ──────────────────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.service }}
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_services == 'true'
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # ── Resolve image tags ────────────────────────────────────────────────────
+      - name: Compute image tags
+        id: tags
+        run: |
+          ACR_SERVER="${{ vars.ACR_NAME }}.azurecr.io"
+          IMAGE="${ACR_SERVER}/selflearning-${{ matrix.service }}"
+          SHA="${{ github.sha }}"
+          SHORT_SHA="${SHA:0:7}"
+
+          TAGS="${IMAGE}:latest ${IMAGE}:${SHORT_SHA}"
+
+          # Add pr-{number} tag for pull-request builds
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            TAGS="$TAGS ${IMAGE}:pr-${PR_NUMBER}"
+          fi
+
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "tags=$TAGS"   >> "$GITHUB_OUTPUT"
+
+          # Build --image-name flags for az acr build (supports a single tag;
+          # we push additional tags after the build via az acr import / tag)
+          echo "primary_tag=${IMAGE}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}"            >> "$GITHUB_OUTPUT"
+
+      # ── Remote build on ACR ───────────────────────────────────────────────────
+      - name: ACR remote build — ${{ matrix.service }}
+        run: |
+          az acr build \
+            --registry "${{ vars.ACR_NAME }}" \
+            --image "selflearning-${{ matrix.service }}:${{ steps.tags.outputs.short_sha }}" \
+            --file "src/${{ matrix.service }}/Dockerfile" \
+            "src/${{ matrix.service }}"
+
+      # ── Tag :latest (and :pr-N if applicable) after the build ─────────────────
+      - name: Tag additional image aliases
+        run: |
+          ACR="${{ vars.ACR_NAME }}"
+          REPO="selflearning-${{ matrix.service }}"
+          SHORT_SHA="${{ steps.tags.outputs.short_sha }}"
+
+          # Always tag :latest
+          az acr import \
+            --name "$ACR" \
+            --source "${ACR}.azurecr.io/${REPO}:${SHORT_SHA}" \
+            --image "${REPO}:latest" \
+            --force
+
+          # Tag :pr-N for pull-request builds
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+            az acr import \
+              --name "$ACR" \
+              --source "${ACR}.azurecr.io/${REPO}:${SHORT_SHA}" \
+              --image "${REPO}:pr-${PR_NUMBER}" \
+              --force
+          fi
+
+      # ── Build summary ─────────────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          ACR_SERVER="${{ vars.ACR_NAME }}.azurecr.io"
+          REPO="selflearning-${{ matrix.service }}"
+          SHORT_SHA="${{ steps.tags.outputs.short_sha }}"
+
+          {
+            echo "### 🐳 ACR Build — \`${{ matrix.service }}\`"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Registry | \`${ACR_SERVER}\` |"
+            echo "| Repository | \`${REPO}\` |"
+            echo "| SHA tag | \`${SHORT_SHA}\` |"
+            echo "| Latest tag | \`latest\` |"
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              echo "| PR tag | \`pr-${{ github.event.pull_request.number }}\` |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
