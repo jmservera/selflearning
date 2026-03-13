@@ -851,3 +851,24 @@ Tank and Oracle delivered production-ready Control UI (React + TypeScript, WebSo
 
 **Reliability Impact:** Ensures bootstrap builds trigger complete rebuilds instead of skipping changes.
 
+---
+
+### Workshop Demo Script Becomes Canonical Squad Walkthrough (2026-03-13)
+
+**Author:** Morpheus (Lead/Architect)  
+**Status:** Proposed
+
+## Decision
+
+`docs/demo-workshop.md` is the canonical end-to-end demo and workshop walkthrough for the `selflearning` repository.
+
+## Context
+
+The repository now contains enough real Squad history to teach the operating model through actual artifacts instead of a synthetic example. Future onboarding, demos, and team handoffs benefit from a single narrative that connects init mode, backlog orchestration, dynamic hiring, `@copilot` issue routing, operational issue creation, and parallel review.
+
+## Consequences
+
+- Presenters and attendees should use `docs/demo-workshop.md` first when they need to understand or demonstrate the Squad workflow in this repo.
+- Historical replay should prefer existing GitHub artifacts (`gh issue/pr ... --state all`) rather than recreating past issues or PRs.
+- Future Squad workflow changes should update this guide so the documented operating model stays aligned with repo reality.
+

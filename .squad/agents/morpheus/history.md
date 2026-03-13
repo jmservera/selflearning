@@ -95,3 +95,8 @@
 - **PR #17 (Bicep IaC):** APPROVED. Infrastructure templates validated and functional. All 8 services deployable via `azd up`.
 - **Decision artifacts merged:** Architecture decisions on Bicep IaC consolidated to decisions.md
 - Project ready for next learning loop iteration: Scrape → Extract → Organize → Reason → Evaluate → Improve
+
+### 2026-03-13: Workshop narrative documented
+- Added `docs/demo-workshop.md` as the canonical end-to-end Squad demo/tutorial for this repo.
+- The guide captures the real `selflearning` journey: init-mode team creation, Ralph backlog clearing, mid-stream hiring of Dozer, pivot to `@copilot` issue routing, issue creation from an `azd provision` failure, and parallel PR reviews.
+- Historical replay guidance uses GitHub CLI inspection (`gh issue/pr ... --state all`) so future demos can walk the actual repository history without needing to recreate the original board state.
