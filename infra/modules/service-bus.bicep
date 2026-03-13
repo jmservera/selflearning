@@ -61,6 +61,16 @@ resource scrapeCompleteExtractorSub 'Microsoft.ServiceBus/namespaces/topics/subs
   }
 }
 
+resource scrapeCompleteOrchestratorSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: scrapeCompleteTopic
+  name: 'orchestrator-sub'
+  properties: {
+    maxDeliveryCount: 5
+    deadLetteringOnMessageExpiration: true
+    lockDuration: 'PT5M'
+  }
+}
+
 resource extractionCompleteTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' = {
   parent: serviceBusNamespace
   name: 'extraction-complete'
@@ -71,7 +81,17 @@ resource extractionCompleteTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10
 
 resource extractionCompleteKnowledgeSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
   parent: extractionCompleteTopic
-  name: 'knowledge'
+  name: 'knowledge-service'
+  properties: {
+    maxDeliveryCount: 5
+    deadLetteringOnMessageExpiration: true
+    lockDuration: 'PT5M'
+  }
+}
+
+resource extractionCompleteOrchestratorSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: extractionCompleteTopic
+  name: 'orchestrator-sub'
   properties: {
     maxDeliveryCount: 5
     deadLetteringOnMessageExpiration: true
@@ -87,19 +107,9 @@ resource reasoningCompleteTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-
   }
 }
 
-resource reasoningCompleteKnowledgeSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
-  parent: reasoningCompleteTopic
-  name: 'knowledge'
-  properties: {
-    maxDeliveryCount: 5
-    deadLetteringOnMessageExpiration: true
-    lockDuration: 'PT5M'
-  }
-}
-
 resource reasoningCompleteOrchestratorSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
   parent: reasoningCompleteTopic
-  name: 'orchestrator'
+  name: 'orchestrator-sub'
   properties: {
     maxDeliveryCount: 5
     deadLetteringOnMessageExpiration: true
@@ -117,7 +127,7 @@ resource evaluationCompleteTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10
 
 resource evaluationCompleteOrchestratorSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
   parent: evaluationCompleteTopic
-  name: 'orchestrator'
+  name: 'orchestrator-sub'
   properties: {
     maxDeliveryCount: 5
     deadLetteringOnMessageExpiration: true
@@ -140,6 +150,37 @@ resource healingEventsHealerSub 'Microsoft.ServiceBus/namespaces/topics/subscrip
     maxDeliveryCount: 10
     deadLetteringOnMessageExpiration: true
     lockDuration: 'PT5M'
+  }
+}
+
+// API Gateway → Orchestrator command queue
+resource orchestratorCommandsQueue 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = {
+  parent: serviceBusNamespace
+  name: 'orchestrator-commands'
+  properties: {
+    maxDeliveryCount: 5
+    deadLetteringOnMessageExpiration: true
+    defaultMessageTimeToLive: 'P1D'
+    lockDuration: 'PT5M'
+  }
+}
+
+// System-status topic (published by services, consumed by API gateway)
+resource systemStatusTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' = {
+  parent: serviceBusNamespace
+  name: 'system-status'
+  properties: {
+    defaultMessageTimeToLive: 'PT1H'
+  }
+}
+
+resource systemStatusApiGatewaySub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: systemStatusTopic
+  name: 'api-gateway'
+  properties: {
+    maxDeliveryCount: 5
+    deadLetteringOnMessageExpiration: true
+    lockDuration: 'PT1M'
   }
 }
 

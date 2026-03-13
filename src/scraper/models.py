@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +31,16 @@ class SourceType(str, Enum):
     RSS = "rss"
 
 
+# Mapping from orchestrator SourceType values to scraper SourceType values
+_ORCHESTRATOR_SOURCE_TYPE_MAP: dict[str, str] = {
+    "web": SourceType.WEB_SEARCH,
+    "social": SourceType.WEB_SEARCH,
+    "api": SourceType.DIRECT_URL,
+    "academic": SourceType.ACADEMIC,
+    "rss": SourceType.RSS,
+}
+
+
 class CrawlStatus(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
@@ -44,7 +54,13 @@ class CrawlStatus(str, Enum):
 # ---------------------------------------------------------------------------
 
 class ScrapeRequest(BaseModel):
-    """A request to scrape content for a given topic/query."""
+    """A request to scrape content for a given topic/query.
+
+    Accepts messages from the Orchestrator service which may send integer
+    ``priority`` values (1-10) or string values (high/medium/low), and
+    ``source_type`` values from the orchestrator's SourceType enum (web,
+    academic, rss, social, api).  Unknown extra fields are silently ignored.
+    """
 
     request_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     topic: str = Field(..., description="Knowledge topic this scrape is for")
@@ -53,6 +69,27 @@ class ScrapeRequest(BaseModel):
     priority: Priority = Field(default=Priority.MEDIUM)
     source_type: SourceType = Field(default=SourceType.WEB_SEARCH)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def _normalize_priority(cls, v: Any) -> Any:
+        """Accept integer priority (1-10) from the orchestrator."""
+        if isinstance(v, int):
+            if v >= 8:
+                return Priority.HIGH
+            elif v >= 4:
+                return Priority.MEDIUM
+            else:
+                return Priority.LOW
+        return v
+
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def _normalize_source_type(cls, v: Any) -> Any:
+        """Accept orchestrator SourceType values and map to scraper SourceType."""
+        if isinstance(v, str) and v in _ORCHESTRATOR_SOURCE_TYPE_MAP:
+            return _ORCHESTRATOR_SOURCE_TYPE_MAP[v]
+        return v
 
 
 # ---------------------------------------------------------------------------

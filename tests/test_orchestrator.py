@@ -822,6 +822,15 @@ class TestEndpoints:
         cosmos.update_topic_status.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_trigger_learning_resumes_paused_update_fails(self, client):
+        c, cosmos, _, _ = client
+        paused = _make_topic(name="paused-t", status=TopicStatus.PAUSED)
+        cosmos.get_topic.return_value = paused
+        cosmos.update_topic_status.return_value = None
+        resp = await c.post("/topics/paused-t/learn")
+        assert resp.status_code == 500
+
+    @pytest.mark.asyncio
     async def test_pause_topic(self, client):
         c, cosmos, _, _ = client
         cosmos.update_topic_status.return_value = _make_topic(status=TopicStatus.PAUSED)
