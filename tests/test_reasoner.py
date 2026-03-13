@@ -313,8 +313,8 @@ class TestKnowledgeServiceClient:
     @respx.mock
     async def test_get_entities_success(self):
         base = "http://knowledge:8000"
-        respx.get(f"{base}/entities").mock(
-            return_value=Response(200, json={"entities": [{"name": "E1"}]}))
+        respx.get(f"{base}/entities/search").mock(
+            return_value=Response(200, json=[{"name": "E1"}]))
         client = KnowledgeServiceClient(base)
         try:
             result = await client.get_entities("topic")
@@ -327,7 +327,7 @@ class TestKnowledgeServiceClient:
     @respx.mock
     async def test_get_entities_error_returns_empty(self):
         base = "http://knowledge:8000"
-        respx.get(f"{base}/entities").mock(return_value=Response(500))
+        respx.get(f"{base}/entities/search").mock(return_value=Response(500))
         client = KnowledgeServiceClient(base)
         try:
             result = await client.get_entities("topic")
@@ -340,7 +340,7 @@ class TestKnowledgeServiceClient:
     async def test_get_claims_success(self):
         base = "http://knowledge:8000"
         respx.get(f"{base}/claims").mock(
-            return_value=Response(200, json={"claims": [{"statement": "S1"}]}))
+            return_value=Response(200, json=[{"statement": "S1"}]))
         client = KnowledgeServiceClient(base)
         try:
             result = await client.get_claims("topic")
@@ -365,7 +365,7 @@ class TestKnowledgeServiceClient:
     async def test_get_relationships_success(self):
         base = "http://knowledge:8000"
         respx.get(f"{base}/relationships").mock(
-            return_value=Response(200, json={"relationships": [{"type": "R1"}]}))
+            return_value=Response(200, json=[{"type": "R1"}]))
         client = KnowledgeServiceClient(base)
         try:
             result = await client.get_relationships("topic")
@@ -390,7 +390,7 @@ class TestKnowledgeServiceClient:
     async def test_search_success(self):
         base = "http://knowledge:8000"
         respx.get(f"{base}/search").mock(
-            return_value=Response(200, json={"results": [{"content": "R1"}]}))
+            return_value=Response(200, json={"items": [{"content": "R1"}], "total_count": 1}))
         client = KnowledgeServiceClient(base)
         try:
             result = await client.search("query")
@@ -413,14 +413,14 @@ class TestKnowledgeServiceClient:
     @pytest.mark.asyncio
     @respx.mock
     async def test_get_entities_returns_list_directly(self):
-        """When API returns a bare list, .get() fails and the exception handler returns []."""
+        """GET /entities/search returns a list; client handles it correctly."""
         base = "http://knowledge:8000"
-        respx.get(f"{base}/entities").mock(
+        respx.get(f"{base}/entities/search").mock(
             return_value=Response(200, json=[{"name": "E1"}]))
         client = KnowledgeServiceClient(base)
         try:
             result = await client.get_entities("topic")
-            assert result == []
+            assert result == [{"name": "E1"}]
         finally:
             await client.close()
 

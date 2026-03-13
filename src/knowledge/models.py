@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _utcnow() -> datetime:
@@ -20,6 +20,22 @@ def _utcnow() -> datetime:
 
 def _new_id() -> str:
     return str(uuid.uuid4())
+
+
+# Mapping from extractor entity_type values (lowercase) to knowledge EntityType values
+_EXTRACTOR_ENTITY_TYPE_MAP: dict[str, str] = {
+    "person": "Person",
+    "organization": "Organization",
+    "concept": "Concept",
+    "technology": "Technology",
+    "method": "Method",
+    "metric": "Other",
+    "location": "Location",
+    "event": "Event",
+    "theory": "Theory",
+    "artifact": "Artifact",
+    "other": "Other",
+}
 
 
 # ── Enums ──────────────────────────────────────────────────────────────────
@@ -56,7 +72,7 @@ class Entity(BaseModel):
     name: str
     entity_type: EntityType = EntityType.CONCEPT
     description: str = ""
-    topic: str
+    topic: str = ""
     aliases: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     source_urls: list[str] = Field(default_factory=list)
@@ -64,6 +80,26 @@ class Entity(BaseModel):
     embedding: list[float] | None = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+    @field_validator("entity_type", mode="before")
+    @classmethod
+    def _normalize_entity_type(cls, v: Any) -> Any:
+        """Accept lowercase entity_type values from the extractor pipeline."""
+        if isinstance(v, str):
+            normalized = _EXTRACTOR_ENTITY_TYPE_MAP.get(v.lower())
+            if normalized is not None:
+                return normalized
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_source_url_alias(cls, data: Any) -> Any:
+        """Accept singular source_url from extractor and append to source_urls list."""
+        if isinstance(data, dict):
+            source_url = data.pop("source_url", None)
+            if source_url and not data.get("source_urls"):
+                data["source_urls"] = [source_url]
+        return data
 
 
 class Relationship(BaseModel):
@@ -76,7 +112,7 @@ class Relationship(BaseModel):
     relationship_type: str
     description: str = ""
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    topic: str
+    topic: str = ""
     sources: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
@@ -122,12 +158,20 @@ class Source(BaseModel):
 
 
 class KnowledgeUnit(BaseModel):
-    """Bulk ingest payload from the extraction pipeline."""
+    """Bulk ingest payload from the extraction pipeline.
 
+    Accepts the full extraction-complete message shape which includes
+    ``request_id``, ``topic``, and ``summaries`` from the Extractor service.
+    Extra fields are silently ignored.
+    """
+
+    request_id: str | None = None
+    topic: str | None = None
     entities: list[Entity] = Field(default_factory=list)
     relationships: list[Relationship] = Field(default_factory=list)
     claims: list[Claim] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
+    summaries: list[Any] = Field(default_factory=list)
 
 
 class SearchResultItem(BaseModel):
