@@ -661,19 +661,28 @@ class TestEndpoints:
         import reasoner.main as reasoner_mod
 
         mock_engine = MagicMock()
-        mock_engine.run = AsyncMock(return_value=ReasoningResult(
-            request_id="r1", topic="test",
-            insights=[Insight(statement="insight1")],
-            meta=ReasoningMeta(reasoning_type="synthesis"),
-        ))
+
+        async def _mock_run(request):
+            return ReasoningResult(
+                request_id=request.request_id,
+                topic=request.topic,
+                insights=[Insight(statement="insight1")],
+                meta=ReasoningMeta(reasoning_type=request.reasoning_type),
+            )
+
+        mock_engine.run = AsyncMock(side_effect=_mock_run)
 
         reasoner_mod.engine = mock_engine
+        reasoner_mod.knowledge_client = MagicMock()
+        reasoner_mod._results.clear()
 
         transport = ASGITransport(app=reasoner_mod.app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             yield c, mock_engine
 
         reasoner_mod.engine = None
+        reasoner_mod.knowledge_client = None
+        reasoner_mod._results.clear()
 
     @pytest.mark.asyncio
     async def test_health_check(self, client):
@@ -721,3 +730,151 @@ class TestEndpoints:
         result = await reasoner_mod.handle_reasoning_request(body)
         assert "request_id" in result
         assert "topic" in result
+
+    @pytest.mark.asyncio
+    async def test_status_endpoint(self, client):
+        """GET /status returns service component states."""
+        c, _ = client
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["service"] == "reasoner"
+        assert "engine" in data
+        assert "knowledge_client" in data
+        assert "service_bus" in data
+        assert "stored_results" in data
+
+    @pytest.mark.asyncio
+    async def test_status_engine_ready(self, client):
+        """Engine shows 'ready' when the mock engine is injected."""
+        c, _ = client
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["engine"] == "ready"
+
+    @pytest.mark.asyncio
+    async def test_reason_endpoint_returns_result(self, client):
+        """POST /reason triggers reasoning and returns a ReasoningResult."""
+        c, _ = client
+        payload = {
+            "topic": "quantum-computing",
+            "reasoning_type": "gap_analysis",
+            "context": {},
+        }
+        resp = await c.post("/reason", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["topic"] == "quantum-computing"
+        assert "request_id" in data
+
+    @pytest.mark.asyncio
+    async def test_reason_endpoint_stores_result(self, client):
+        """POST /reason stores the result so it can be retrieved later."""
+        import reasoner.main as reasoner_mod
+
+        c, _ = client
+        reasoner_mod._results.clear()
+
+        payload = {
+            "topic": "ml",
+            "reasoning_type": "synthesis",
+            "context": {},
+        }
+        resp = await c.post("/reason", json=payload)
+        assert resp.status_code == 200
+        request_id = resp.json()["request_id"]
+        assert request_id in reasoner_mod._results
+
+    @pytest.mark.asyncio
+    async def test_reason_endpoint_503_when_engine_none(self, client):
+        """POST /reason returns 503 when the engine is not initialized."""
+        import reasoner.main as reasoner_mod
+
+        c, _ = client
+        original_engine = reasoner_mod.engine
+        try:
+            reasoner_mod.engine = None
+            resp = await c.post(
+                "/reason",
+                json={"topic": "t", "reasoning_type": "synthesis"},
+            )
+            assert resp.status_code == 503
+        finally:
+            reasoner_mod.engine = original_engine
+
+    @pytest.mark.asyncio
+    async def test_get_result_found(self, client):
+        """GET /results/{request_id} returns the stored result."""
+        import reasoner.main as reasoner_mod
+
+        c, _ = client
+        # Pre-populate the store
+        stored = ReasoningResult(
+            request_id="known-id",
+            topic="test-topic",
+            insights=[Insight(statement="stored insight")],
+        )
+        reasoner_mod._results["known-id"] = stored
+
+        resp = await c.get("/results/known-id")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["request_id"] == "known-id"
+        assert data["topic"] == "test-topic"
+        assert data["insights"][0]["statement"] == "stored insight"
+
+    @pytest.mark.asyncio
+    async def test_get_result_not_found(self, client):
+        """GET /results/{request_id} returns 404 for an unknown ID."""
+        c, _ = client
+        resp = await c.get("/results/no-such-id")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_list_results_empty(self, client):
+        """GET /results returns an empty list when no results are stored."""
+        import reasoner.main as reasoner_mod
+
+        c, _ = client
+        reasoner_mod._results.clear()
+        resp = await c.get("/results")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    @pytest.mark.asyncio
+    async def test_list_results_returns_recent(self, client):
+        """GET /results returns stored results, most recent first."""
+        import reasoner.main as reasoner_mod
+
+        c, _ = client
+        reasoner_mod._results.clear()
+        for i in range(5):
+            r = ReasoningResult(request_id=f"id-{i}", topic=f"topic-{i}")
+            reasoner_mod._results[f"id-{i}"] = r
+
+        resp = await c.get("/results")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 5
+        # Most recently inserted result should appear first
+        assert data[0]["request_id"] == "id-4"
+
+    @pytest.mark.asyncio
+    async def test_list_results_respects_limit(self, client):
+        """GET /results?limit=2 returns the 2 most recent results."""
+        import reasoner.main as reasoner_mod
+
+        c, _ = client
+        reasoner_mod._results.clear()
+        for i in range(5):
+            r = ReasoningResult(request_id=f"id-{i}", topic=f"topic-{i}")
+            reasoner_mod._results[f"id-{i}"] = r
+
+        resp = await c.get("/results?limit=2")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        # Should be the two most recent entries
+        assert data[0]["request_id"] == "id-4"
+        assert data[1]["request_id"] == "id-3"
