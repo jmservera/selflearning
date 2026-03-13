@@ -25,3 +25,13 @@
 - **User preference:** jmservera wants to eliminate local Docker dependency — ACR Tasks achieves this
 - **Build tags:** Always tag with both `latest` (for Container Apps) and git SHA (for traceability)
 - **Error handling:** Script validates azd environment, Azure login, service names before building
+
+### Build Review Follow-ups (2026-03-13)
+- **ACR build Dockerfile path:** `az acr build --file` must be relative to the selected source context. For per-service builds with context `src/<service>`, use `--file Dockerfile`.
+- **PR image tagging rule:** Pull request builds may publish SHA or `pr-<number>` tags, but must not retag `latest`; reserve `latest` for trusted branch/manual flows.
+- **Null-SHA push handling:** When `github.event.before` is the all-zero SHA, build all services or diff against the empty tree instead of relying on `HEAD~1..HEAD`.
+
+### PR #29 Infra Review (2026-03-13)
+- **ACR RBAC pattern:** User-assigned managed identities should receive `AcrPull` (`7f951dda-4ed3-4680-a7ca-43fe172d538d`) scoped to the ACR resource itself, with `principalType: 'ServicePrincipal'`.
+- **Bootstrap image rule:** Placeholder images used to unblock first `azd provision` must be opt-in or first-deploy-only; the steady-state Bicep definition should converge Container Apps to the real ACR image.
+- **Port alignment rule:** Any placeholder image used by Container Apps must match the configured `targetPort`, or the template must switch ports conditionally.

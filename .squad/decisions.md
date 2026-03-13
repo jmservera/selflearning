@@ -769,3 +769,85 @@ Both services follow the established pattern:
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
 - **MANDATORY: Commit to git after every learning loop iteration (see policy above)**
+
+### UI Code Review & Integration Fixes (2026-03-12)
+
+**Author:** Morpheus (Lead/Architect)  
+**Status:** ✅ **APPROVED WITH NOTES**
+
+Tank and Oracle delivered production-ready Control UI (React + TypeScript, WebSocket real-time, Docker build). Critical integration issue found: frontend types mismatched backend API contracts (Entity/Relationship field names). Fixed in commit `2bdb486`.
+
+**Key Decisions:**
+1. **API contract alignment during parallel development:** Frontend and backend TypeScript/Python types must match exactly. Use code review to catch field name mismatches before merge.
+2. **WebSocket heartbeat safety margin:** Heartbeat interval must be strictly less than backend timeout. Approved: 25s client, 30s server = safe 5s margin.
+3. **SPA fallback routing for nginx:** All production deployments must include `try_files $uri $uri/ /index.html` in nginx config.
+
+### Bicep Infrastructure Decisions (2026-03-13)
+
+**Author:** Dozer (DevOps / Infra Engineer)  
+**Status:** Changes Requested — Pending PR #29 Author Response
+
+#### Decision: Bootstrap placeholder images must not lock steady-state IaC
+
+**Problem:** If Bicep uses a public placeholder image to unblock `azd provision`, later deployments must not roll back to placeholder.
+
+**Rule:** Default/steady-state IaC must converge to real ACR image. Placeholder behavior must be opt-in or first-deploy-only.
+
+**Example violation:** Container App definition hard-codes `placeholder.azurecr.io/app:latest` permanently. **Fix:** Parameter-driven image selection: production uses ACR, bootstrap uses placeholder (first run only).
+
+---
+
+#### Decision: Placeholder images must match Container App port configuration
+
+**Problem:** Port mismatch between placeholder image listener and Container App targetPort causes connection failures.
+
+**Rule:** If using placeholder image on port 80, switch Container App `targetPort` to 80. Or choose placeholder matching the already-declared service port.
+
+**Impact:** Prevents deployment errors when bootstrapping with placeholders.
+
+---
+
+#### Decision: ACR access follows deterministic RBAC pattern
+
+**Problem:** Role assignment idempotency and consistency across deployments.
+
+**Rule:** 
+- Assign `AcrPull` role (`7f951dda-4ed3-4680-a7ca-43fe172d538d`) at **registry scope**, not resource-group scope
+- Use deterministic `guid(registryId, identityId, roleDef)` for assignment name
+- Prevents duplicate assignments on repeated `azd provision`
+
+### Build Automation Decisions (2026-03-13)
+
+**Author:** Dozer (DevOps / Infra Engineer)  
+**Status:** Changes Requested — Pending PR #23 + #25 Author Response
+
+#### Decision: Dockerfile paths relative to ACR build context
+
+**Problem:** `az acr build` interprets `--file` relative to context root. Absolute paths and full context-relative paths fail.
+
+**Rule:** If context is `src/<service>`, Dockerfile path must be `Dockerfile`, not `src/<service>/Dockerfile`.
+
+**CI Impact:** Simplifies build scripts; prevents cross-runner path resolution errors.
+
+---
+
+#### Decision: Do not move `latest` from pull request builds
+
+**Problem:** PR workflows must not promote unreviewed code to production `latest` tag.
+
+**Rule:** 
+- PR workflows: publish immutable SHA tags + optional `pr-<number>` tags
+- Only `main` push or manual promotion updates `latest`
+
+**Security Impact:** Separates PR image tracks from production; prevents accidental promotion.
+
+---
+
+#### Decision: Treat null-SHA pushes as full rebuild scenarios
+
+**Problem:** Bootstrap pushes (initial setup, squash merges) have `github.event.before = 0000...`. Using `git diff HEAD~1 HEAD` misses changes.
+
+**Rule:** When `before` is all zeros, build all services or diff against empty tree. Never rely on `HEAD~1` comparison.
+
+**Reliability Impact:** Ensures bootstrap builds trigger complete rebuilds instead of skipping changes.
+
