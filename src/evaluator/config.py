@@ -1,12 +1,14 @@
-"""Evaluator service configuration."""
+"""Evaluator service configuration — all settings via environment variables."""
 
-import os
-from dataclasses import dataclass
+from __future__ import annotations
+
+from pydantic_settings import BaseSettings
 
 
-@dataclass(frozen=True)
-class Settings:
+class Settings(BaseSettings):
     """Evaluator service settings loaded from environment variables."""
+
+    model_config = {"env_prefix": "", "env_file": ".env", "extra": "ignore"}
 
     azure_ai_endpoint: str = ""
     azure_servicebus_namespace: str = ""
@@ -23,18 +25,9 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        return cls(
-            azure_ai_endpoint=os.getenv("AZURE_AI_FOUNDRY_ENDPOINT", ""),
-            azure_servicebus_namespace=os.getenv("AZURE_SERVICEBUS_NAMESPACE", ""),
-            knowledge_service_url=os.getenv(
-                "KNOWLEDGE_SERVICE_URL", "http://localhost:8003"
-            ),
-            evaluation_model=os.getenv("EVALUATION_MODEL", "gpt-4o"),
-            question_model=os.getenv("QUESTION_MODEL", "gpt-4o-mini"),
-            service_bus_topic=os.getenv("EVALUATION_TOPIC", "evaluation-complete"),
-            max_questions_per_eval=int(os.getenv("MAX_QUESTIONS_PER_EVAL", "20")),
-            scorecard_history_limit=int(os.getenv("SCORECARD_HISTORY_LIMIT", "50")),
-            cosmos_endpoint=os.getenv("COSMOS_ENDPOINT", ""),
-            cosmos_database=os.getenv("COSMOS_DATABASE", "selflearning"),
-            cosmos_container=os.getenv("COSMOS_EVALUATIONS_CONTAINER", "evaluations"),
-        )
+        return cls()
+
+
+def get_settings() -> Settings:
+    """Return a Settings instance loaded from environment variables."""
+    return Settings()
