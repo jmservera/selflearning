@@ -22,6 +22,9 @@ param keyVaultName string
 @description('AI Search name for RBAC')
 param aiSearchName string
 
+@description('Container Registry name for AcrPull RBAC')
+param containerRegistryName string
+
 var abbrs = loadJsonContent('../abbreviations.json')
 
 // Shared managed identity for all services
@@ -116,6 +119,24 @@ resource aiSearchRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04
       'Microsoft.Authorization/roleDefinitions',
       '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
     ) // Search Index Data Contributor
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// AcrPull — Container Registry
+resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
+  name: containerRegistryName
+}
+
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(containerRegistry.id, managedIdentity.id, '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+  scope: containerRegistry
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+    ) // AcrPull
     principalId: managedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }

@@ -28,6 +28,15 @@ param targetPort int = 8000
 @description('Environment variables for the container')
 param env array = []
 
+@description('Use a placeholder public image instead of the ACR image. Set to true only on the very first azd provision before any images have been pushed to ACR. Defaults to false so that steady-state re-provisions always use the real ACR image.')
+param useDefaultImage bool = false
+
+var acrImage = '${containerRegistryLoginServer}/selflearning-${serviceName}:latest'
+var defaultImage = 'mcr.microsoft.com/k8se/quickstart:latest'
+var containerImage = useDefaultImage ? defaultImage : acrImage
+// The quickstart placeholder listens on port 80; real services use the caller-supplied targetPort.
+var effectiveTargetPort = useDefaultImage ? 80 : targetPort
+
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-${serviceName}'
   location: location
@@ -44,7 +53,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       activeRevisionsMode: 'Single'
       ingress: {
         external: external
-        targetPort: targetPort
+        targetPort: effectiveTargetPort
         transport: 'auto'
         allowInsecure: false
       }
@@ -59,7 +68,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: serviceName
-          image: '${containerRegistryLoginServer}/selflearning-${serviceName}:latest'
+          image: containerImage
           resources: {
             cpu: json('0.5')
             memory: '1Gi'
