@@ -13,6 +13,9 @@ param location string
 param deployGptModel bool = true
 param deployEmbeddingModel bool = true
 
+@description('Use a placeholder public image for the very first azd provision before any images are pushed to ACR. Set to true on first deployment; leave false for steady-state re-provisions.')
+param useDefaultImage bool = false
+
 // Generate resource name prefix
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
@@ -148,6 +151,7 @@ module identity 'modules/identity.bicep' = {
     keyVaultName: keyVault.outputs.keyVaultName
     aiSearchName: aiSearch.outputs.aiSearchName
     aiFoundryAccountName: aiFoundry.outputs.accountName
+    containerRegistryName: containerRegistry.outputs.registryName
   }
 }
 
@@ -206,6 +210,7 @@ module caScraperApp 'modules/container-app.bicep' = {
     serviceBusQueueName: 'scrape-requests'
     scaleIdentityId: identity.outputs.identityId
     kedaMessageCount: 20
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }
@@ -235,6 +240,7 @@ module caExtractorApp 'modules/container-app.bicep' = {
     serviceBusSubscriptionName: 'extractor'
     scaleIdentityId: identity.outputs.identityId
     kedaMessageCount: 20
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }
@@ -263,6 +269,7 @@ module caKnowledgeApp 'modules/container-app.bicep' = {
     serviceBusSubscriptionName: 'knowledge-service'
     scaleIdentityId: identity.outputs.identityId
     kedaMessageCount: 20
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }
@@ -294,6 +301,7 @@ module caReasonerApp 'modules/container-app.bicep' = {
     serviceBusQueueName: 'reasoning-requests'
     scaleIdentityId: identity.outputs.identityId
     kedaMessageCount: 10
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }
@@ -320,6 +328,7 @@ module caEvaluatorApp 'modules/container-app.bicep' = {
         value: 'https://ca-knowledge.${containerAppsEnv.outputs.defaultDomain}'
       }
     ])
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }
@@ -373,6 +382,7 @@ module caOrchestratorApp 'modules/container-app.bicep' = {
         value: 'https://ca-api.${containerAppsEnv.outputs.defaultDomain}'
       }
     ])
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }
@@ -427,6 +437,7 @@ module caHealerApp 'modules/container-app.bicep' = {
         value: 'https://ca-api.${containerAppsEnv.outputs.defaultDomain}'
       }
     ])
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }
@@ -477,6 +488,7 @@ module caApiApp 'modules/container-app.bicep' = {
         value: 'https://ca-reasoner.${containerAppsEnv.outputs.defaultDomain}'
       }
     ])
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }
@@ -502,6 +514,7 @@ module uiContainerApp 'modules/container-app.bicep' = {
       { name: 'API_GATEWAY_URL', value: 'https://${caApiApp.outputs.fqdn}' }
       { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
     ]
+    useDefaultImage: useDefaultImage
   }
   dependsOn: [keyVaultSecrets]
 }

@@ -25,6 +25,9 @@ param aiSearchName string
 @description('AI Foundry account name for RBAC')
 param aiFoundryAccountName string
 
+@description('Container Registry name for AcrPull RBAC')
+param containerRegistryName string
+
 var abbrs = loadJsonContent('../abbreviations.json')
 
 // Shared managed identity for all services
@@ -137,6 +140,24 @@ resource aiFoundryRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-0
       'Microsoft.Authorization/roleDefinitions',
       '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
     ) // Cognitive Services OpenAI User
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// AcrPull — Container Registry
+resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
+  name: containerRegistryName
+}
+
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(containerRegistry.id, managedIdentity.id, '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+  scope: containerRegistry
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+    ) // AcrPull
     principalId: managedIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }

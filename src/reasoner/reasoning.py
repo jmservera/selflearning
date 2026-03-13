@@ -237,12 +237,12 @@ class KnowledgeServiceClient:
             span.set_attribute("knowledge.top_k", top_k)
             try:
                 resp = await self._client.get(
-                    "/entities",
-                    params={"topic": topic, "top_k": top_k},
+                    "/entities/search",
+                    params={"topic": topic, "limit": top_k},
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                entities = data.get("entities", data if isinstance(data, list) else [])
+                entities = data if isinstance(data, list) else data.get("entities", [])
                 span.set_attribute("knowledge.count", len(entities))
                 return entities
             except Exception:
@@ -256,11 +256,11 @@ class KnowledgeServiceClient:
             try:
                 resp = await self._client.get(
                     "/claims",
-                    params={"topic": topic, "top_k": top_k},
+                    params={"topic": topic, "limit": top_k},
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                claims = data.get("claims", data if isinstance(data, list) else [])
+                claims = data if isinstance(data, list) else data.get("claims", [])
                 span.set_attribute("knowledge.count", len(claims))
                 return claims
             except Exception:
@@ -272,17 +272,29 @@ class KnowledgeServiceClient:
         topic: str,
         entity_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Retrieve relationships for a topic or specific entities."""
+        """Retrieve relationships for a topic or specific entities.
+
+        Note: the Knowledge API accepts a single ``entity_id`` filter per
+        request.  When multiple entity_ids are provided only the first is used;
+        callers that need all entities should make multiple requests.
+        """
         with tracer.start_as_current_span("knowledge.get_relationships") as span:
             span.set_attribute("knowledge.topic", topic)
             try:
                 params: dict[str, Any] = {"topic": topic}
                 if entity_ids:
-                    params["entity_ids"] = ",".join(entity_ids)
+                    if len(entity_ids) > 1:
+                        logger.warning(
+                            "get_relationships received %d entity_ids; Knowledge API "
+                            "only supports a single entity_id filter — using entity_id=%s",
+                            len(entity_ids),
+                            entity_ids[0],
+                        )
+                    params["entity_id"] = entity_ids[0]
                 resp = await self._client.get("/relationships", params=params)
                 resp.raise_for_status()
                 data = resp.json()
-                rels = data.get("relationships", data if isinstance(data, list) else [])
+                rels = data if isinstance(data, list) else data.get("relationships", [])
                 span.set_attribute("knowledge.count", len(rels))
                 return rels
             except Exception:
@@ -297,11 +309,15 @@ class KnowledgeServiceClient:
             try:
                 resp = await self._client.get(
                     "/search",
-                    params={"query": query, "top_k": top_k},
+                    params={"q": query, "limit": top_k},
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                results = data.get("results", data if isinstance(data, list) else [])
+                # Knowledge API returns SearchResult with an "items" field
+                if isinstance(data, list):
+                    results = data
+                else:
+                    results = data.get("items", data.get("results", []))
                 span.set_attribute("knowledge.count", len(results))
                 return results
             except Exception:

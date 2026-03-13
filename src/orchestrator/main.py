@@ -210,7 +210,9 @@ async def trigger_learning(topic: str, body: TopicCreate | None = None) -> Topic
         if existing:
             if existing.status == TopicStatus.PAUSED:
                 existing = _cosmos.update_topic_status(topic, TopicStatus.ACTIVE)
-            return TopicResponse(**existing.model_dump()) if existing else HTTPException(500)
+            if existing is None:
+                raise HTTPException(status_code=500, detail="Failed to update topic status")
+            return TopicResponse(**existing.model_dump())
 
         # Create new topic
         new_topic = LearningTopic(
