@@ -71,3 +71,11 @@
   - ✅ Dockerfile: Multi-stage build (node:20-alpine → nginx:alpine), SPA fallback, gzip, security headers
 - **Verdict:** ✅ **APPROVED WITH NOTES** — Production-ready after fix. Minor items: nginx env var substitution needs runtime config, large graph performance optimization deferred.
 - **Learning:** Frontend/backend type alignment is critical. Future work: consider shared TypeScript types generated from Python models (openapi-typescript or similar) to prevent this class of bug.
+
+### 2026-03-13: PR reviews round 2 (PRs #13-16) — Code review complete, 1 blocker identified
+- **PR #13 (Reasoner HTTP endpoints):** APPROVED. 382 tests pass. Added direct reasoning invocation and result retrieval endpoints. Established pattern for future services.
+- **PR #14 (API Gateway tests):** APPROVED. 35 tests, 100% coverage. Ready for deployment.
+- **PR #15 (Cosmos DB migration):** APPROVED (by me as Lead). Evaluated graceful fallback pattern — in-memory stores as safety net during external persistence failures. Supports zero-downtime migration, local dev ergonomics, production safety. Pattern documented for future migrations (Reasoner, Healer). Not suitable for Knowledge/Orchestrator/Scraper (require fail-closed).
+- **PR #16 (Docker compose):** BLOCKED by Tank. Identified missing local development auth pattern. Services default to DefaultAzureCredential (production) but emulators need account key auth. Affects Orchestrator (Cosmos), Knowledge (Cosmos), Scraper (Cosmos+Blob), Extractor (Blob). Solution pattern documented; awaiting implementation from Trinity, Oracle, Morpheus.
+- **Decisions impact:** Graceful Fallback pattern ready for Orchestrator future enhancements; emulator auth blocks Orchestrator local testing
+- **Next:** Implement emulator auth in Orchestrator service; approve PR #16 after fixes verified

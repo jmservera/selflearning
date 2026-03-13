@@ -13,8 +13,20 @@ from opentelemetry import trace
 
 from config import ExtractorConfig
 
+# Azurite well-known account key
+AZURITE_ACCOUNT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer("extractor.blob")
+
+
+def _is_azurite(account_url: str) -> bool:
+    """Check if endpoint is Azurite emulator (azurite:, localhost:10000, or devstoreaccount1)."""
+    return (
+        "azurite:" in account_url
+        or "localhost:10000" in account_url
+        or "devstoreaccount1" in account_url
+    )
 
 
 class BlobStorageClient:
@@ -27,11 +39,18 @@ class BlobStorageClient:
 
     async def initialize(self) -> None:
         """Create the blob service client with managed-identity auth."""
-        self._credential = DefaultAzureCredential()
-        self._client = BlobServiceClient(
-            account_url=self._config.storage_account_url,
-            credential=self._credential,
-        )
+        if _is_azurite(self._config.storage_account_url):
+            logger.info("Using Azurite emulator authentication")
+            self._client = BlobServiceClient(
+                account_url=self._config.storage_account_url,
+                credential=AZURITE_ACCOUNT_KEY,
+            )
+        else:
+            self._credential = DefaultAzureCredential()
+            self._client = BlobServiceClient(
+                account_url=self._config.storage_account_url,
+                credential=self._credential,
+            )
         logger.info("Blob storage client initialized (%s)", self._config.storage_account_url)
 
     async def close(self) -> None:

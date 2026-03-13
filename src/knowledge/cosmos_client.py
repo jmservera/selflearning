@@ -17,6 +17,9 @@ from azure.identity.aio import DefaultAzureCredential
 from opentelemetry import trace
 
 from .config import CosmosConfig
+
+# Cosmos DB emulator well-known master key
+COSMOS_EMULATOR_KEY = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n7QOoRmP4MVTM+5CTVEX0Nz+6tg=="
 from .models import (
     BulkIngestResponse,
     Claim,
@@ -39,6 +42,11 @@ _MODEL_MAP: dict[DocType, type] = {
 }
 
 
+def _is_cosmos_emulator(endpoint: str) -> bool:
+    """Check if endpoint is Cosmos DB emulator (localhost:8081 or cosmos:8081)."""
+    return "localhost:8081" in endpoint or "cosmos:8081" in endpoint
+
+
 class KnowledgeStore:
     """Async wrapper around Cosmos DB for knowledge-graph operations."""
 
@@ -54,11 +62,18 @@ class KnowledgeStore:
     async def initialize(self) -> None:
         """Create the async Cosmos client and obtain container handle."""
         with tracer.start_as_current_span("cosmos.initialize"):
-            self._credential = DefaultAzureCredential()
-            self._client = CosmosClient(
-                url=self._config.endpoint,
-                credential=self._credential,
-            )
+            if _is_cosmos_emulator(self._config.endpoint):
+                logger.info("Using Cosmos DB emulator authentication")
+                self._client = CosmosClient(
+                    url=self._config.endpoint,
+                    credential=COSMOS_EMULATOR_KEY,
+                )
+            else:
+                self._credential = DefaultAzureCredential()
+                self._client = CosmosClient(
+                    url=self._config.endpoint,
+                    credential=self._credential,
+                )
             self._database = self._client.get_database_client(
                 self._config.database_name
             )
