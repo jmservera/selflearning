@@ -20,6 +20,12 @@ from opentelemetry import trace
 from config import ScraperSettings
 from models import CrawlHistoryEntry, CrawlStatus
 
+# Cosmos DB emulator well-known master key
+COSMOS_EMULATOR_KEY = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n7QOoRmP4MVTM+5CTVEX0Nz+6tg=="
+
+# Azurite well-known account key
+AZURITE_ACCOUNT_KEY = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -35,6 +41,20 @@ def content_hash(data: bytes) -> str:
 
 def _domain_from_url(url: str) -> str:
     return urlparse(url).netloc.lower()
+
+
+def _is_cosmos_emulator(endpoint: str) -> bool:
+    """Check if endpoint is Cosmos DB emulator (localhost:8081 or cosmos:8081)."""
+    return "localhost:8081" in endpoint or "cosmos:8081" in endpoint
+
+
+def _is_azurite(account_url: str) -> bool:
+    """Check if endpoint is Azurite emulator (azurite:, localhost:10000, or devstoreaccount1)."""
+    return (
+        "azurite:" in account_url
+        or "localhost:10000" in account_url
+        or "devstoreaccount1" in account_url
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -53,10 +73,17 @@ class BlobStorageClient:
     async def initialize(self) -> None:
         """Create the blob service client and ensure the container exists."""
         with tracer.start_as_current_span("blob_storage.initialize"):
-            self._service_client = BlobServiceClient(
-                account_url=self._settings.blob_account_url,
-                credential=self._credential,
-            )
+            if _is_azurite(self._settings.blob_account_url):
+                logger.info("Using Azurite emulator authentication")
+                self._service_client = BlobServiceClient(
+                    account_url=self._settings.blob_account_url,
+                    credential=AZURITE_ACCOUNT_KEY,
+                )
+            else:
+                self._service_client = BlobServiceClient(
+                    account_url=self._settings.blob_account_url,
+                    credential=self._credential,
+                )
             self._container_client = self._service_client.get_container_client(
                 self._settings.blob_container_name,
             )
@@ -126,10 +153,17 @@ class CrawlHistoryClient:
     async def initialize(self) -> None:
         """Open the Cosmos client and get the crawl-history container handle."""
         with tracer.start_as_current_span("crawl_history.initialize"):
-            self._cosmos_client = CosmosClient(
-                url=self._settings.cosmos_endpoint,
-                credential=self._credential,
-            )
+            if _is_cosmos_emulator(self._settings.cosmos_endpoint):
+                logger.info("Using Cosmos DB emulator authentication")
+                self._cosmos_client = CosmosClient(
+                    url=self._settings.cosmos_endpoint,
+                    credential=COSMOS_EMULATOR_KEY,
+                )
+            else:
+                self._cosmos_client = CosmosClient(
+                    url=self._settings.cosmos_endpoint,
+                    credential=self._credential,
+                )
             database = self._cosmos_client.get_database_client(self._settings.cosmos_database_name)
             self._container = database.get_container_client(self._settings.cosmos_container_name)
             logger.info(

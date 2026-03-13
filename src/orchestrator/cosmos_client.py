@@ -16,6 +16,9 @@ from azure.identity import DefaultAzureCredential
 from opentelemetry import trace
 
 from config import OrchestratorSettings
+
+# Cosmos DB emulator well-known master key
+COSMOS_EMULATOR_KEY = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n7QOoRmP4MVTM+5CTVEX0Nz+6tg=="
 from models import (
     LearningStrategy,
     LearningTopic,
@@ -26,6 +29,11 @@ from models import (
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _is_cosmos_emulator(endpoint: str) -> bool:
+    """Check if endpoint is Cosmos DB emulator (localhost:8081 or cosmos:8081)."""
+    return "localhost:8081" in endpoint or "cosmos:8081" in endpoint
 
 
 class CosmosDBClient:
@@ -47,10 +55,16 @@ class CosmosDBClient:
     async def initialize(self) -> None:
         """Create the Cosmos client and ensure containers exist."""
         with tracer.start_as_current_span("cosmos.initialize"):
-            credential = DefaultAzureCredential()
-            self._client = CosmosClient(
-                url=self._settings.cosmos_endpoint, credential=credential
-            )
+            if _is_cosmos_emulator(self._settings.cosmos_endpoint):
+                logger.info("Using Cosmos DB emulator authentication")
+                self._client = CosmosClient(
+                    url=self._settings.cosmos_endpoint, credential=COSMOS_EMULATOR_KEY
+                )
+            else:
+                credential = DefaultAzureCredential()
+                self._client = CosmosClient(
+                    url=self._settings.cosmos_endpoint, credential=credential
+                )
             db = self._client.create_database_if_not_exists(self._settings.cosmos_database)
 
             self._pipeline_container = self._ensure_container(
