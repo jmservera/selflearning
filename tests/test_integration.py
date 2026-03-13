@@ -1188,3 +1188,4 @@ def _compute_coverage_score(store: KnowledgeStoreSimulator, topic: str) -> float
     topic_entities = [e for e in store.entities if e.get("topic") == topic]
     # Normalize: 10 entities = full coverage
     return min(1.0, len(topic_entities) / 10.0)
+
