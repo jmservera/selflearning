@@ -71,3 +71,14 @@
   - ✅ Dockerfile: Multi-stage build (node:20-alpine → nginx:alpine), SPA fallback, gzip, security headers
 - **Verdict:** ✅ **APPROVED WITH NOTES** — Production-ready after fix. Minor items: nginx env var substitution needs runtime config, large graph performance optimization deferred.
 - **Learning:** Frontend/backend type alignment is critical. Future work: consider shared TypeScript types generated from Python models (openapi-typescript or similar) to prevent this class of bug.
+
+### 2026-03-13: Round 4-5 — PR merges, decisions consolidated
+- **PRs merged:** 4 PRs into main (#16, #19, #20, #21)
+- **Issues closed:** 4 issues (#3, #7, #10, #11)
+- **Decisions merged:** 4 new decision documents consolidated into .squad/decisions.md:
+  - Integration Test Patterns (Niobe) — in-process message bus, simulators, wire format testing
+  - Emulator Authentication (Tank) — conditional auth for Cosmos DB emulator + Azurite
+  - OpenAPI Documentation Standards (Tank) — required metadata for all FastAPI services
+  - Endpoint Test Coverage (Niobe) — /health and /status comprehensive testing
+- **Squad state:** All agents aware of decisions. Decisions inbox cleared. Orchestration log created. Cross-team awareness updated.
+- **Next iteration:** Prepare for first full learning loop with all services integrated.

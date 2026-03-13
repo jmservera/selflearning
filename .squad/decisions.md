@@ -205,21 +205,327 @@ Built a React SPA (`src/ui/`) with the following architecture:
 **Author:** Oracle (AI/ML Engineer)  
 **Status:** Accepted
 
-Built complete Chat and Knowledge Explorer pages with 11 reusable React/TypeScript components.
+### Integration Test Patterns for Learning Pipeline (2026-03-13)
 
-1. **Pure SVG Knowledge Graph** — Force-directed graph using pure SVG + CSS + React hooks, no external libraries (D3, vis.js, cytoscape). Physics simulation: Coulomb repulsion (2000/distance²), Hooke attraction (0.01 × distance), center gravity (0.001), 80% damping, 100 iterations on mount. Node size: 8 + (connectionCount × 2) pixels [8-20]. **Rationale:** External graph libs add 200KB+ bundle. SVG gives full control without learning library APIs. Physics simulation provides good-enough layout instantly.
 
-2. **Confidence Color Scale** — Three-tier coding: red (`rose-500/600`, confidence < 0.3), yellow (`amber-500/600`, 0.3 ≤ confidence < 0.7), green (`emerald-500/600`, confidence ≥ 0.7). **Rationale:** Matches human intuition (traffic light). Clear visual distinction. Thresholds align with evaluator service quality bands.
+**Author:** Niobe (Tester/Evaluator)  
+**Date:** 2026-03-13  
+**Status:** Accepted
 
-3. **Dual-Variant ConfidenceBar** — Single reusable component with `variant` prop: `bar` (horizontal progress) or `ring` (circular arc). Props: `value` (0-1), `size` ('sm'|'md'|'lg'), `showLabel`, `variant`. **Rationale:** DRY principle. Bar better for detail panels; ring for inline displays. Same color logic/thresholds across both.
+## Decision
 
-4. **Topic-Filtered Chat** — Chat maintains full history in state with optional topic filtering (doesn't clear history, just sends context to API). Users can switch topics mid-conversation. Clear button resets. **Rationale:** Users should keep context. Topic filtering is scope hint, not boundary. Allows comparing answers across topics. Simplifies state (no per-topic storage).
+Integration tests for the selflearning pipeline are implemented using **in-process message bus simulation** at the Service Bus abstraction layer, with minimal service simulators producing valid Pydantic models.
 
-5. **Graph Node Highlighting** — Selected node: blue border, full opacity, name always visible. Connected nodes: full opacity, edges highlighted. Unconnected: 20% opacity. Edge opacity: 80% connected, 10% others. **Rationale:** Focuses attention without hiding structure. Clear visual feedback. Dimming preserves spatial context. Shows entity "distance" from selection.
+## Context
 
-6. **Auto-Growing Textarea** — Chat input starts 1 row (48px), grows to max 4 rows (112px). Enter to send, Shift+Enter for newline. **Rationale:** Single-line minimizes space, maximizes history viewport. Auto-grow provides length feedback. 4-row cap prevents input dominating screen. Standard shortcuts match Slack/Discord/ChatGPT.
+Issue #11 required integration tests to validate end-to-end pipeline message flow. All existing tests were unit tests. Need to verify:
+- Messages produced by Service A have the format that Service B can consume
+- Service B processes the message and produces output for Service C
+- Orchestrator correctly coordinates pipeline using completion buffers
 
-7. **Expandable Citations** — Citation snippets truncated at 120 characters with "Show more" toggle. Sources section collapsed by default with count badge. **Rationale:** Reduces scrolling on multi-source answers. 120 chars enough context. Expandable design puts user in control. Badge signals richness without space.
+## Integration Test Architecture
+
+### 1. PipelineMessageBus (In-Process Message Router)
+```python
+class PipelineMessageBus:
+    """In-memory router that simulates Azure Service Bus without real Azure."""
+    def publish_to_topic(self, topic: str, message: dict) -> None: ...
+    def publish_to_queue(self, queue: str, message: dict) -> None: ...
+    async def wait_for_message(self, channel: str, timeout: float = 2.0) -> dict: ...
+```
+
+**Why:** Mocks at the Service Bus level, not at individual service internals. Tests validate actual message serialization/deserialization.
+
+### 2. Service Simulators (Minimal but Realistic)
+```python
+class ScraperSimulator:
+    async def handle(self, request: ScraperScrapeRequest) -> ScrapeCompleteEvent: ...
+
+class ExtractorSimulator:
+    async def handle(self, event: ScrapeCompleteEvent) -> ExtractionResult: ...
+
+class ReasonerSimulator:
+    async def handle(self, request: ReasonerRequest) -> ReasoningResult: ...
+
+class KnowledgeStoreSimulator:
+    def ingest(self, extraction: ExtractionResult) -> dict: ...
+```
+
+**Why:** Produce valid Pydantic models that match production contracts. Not full service implementations, just enough to validate message flow and field constraints.
+
+### 3. Wire Format Testing (JSON Round-Trips)
+Helper functions like `_make_scraper_request(orch_req)` convert between service models via JSON serialization:
+```python
+def _make_scraper_request(orch_req: OrchestratorScrapeRequest) -> ScraperScrapeRequest:
+    payload = json.loads(orch_req.model_dump_json())
+    return ScraperScrapeRequest(request_id=payload["request_id"], topic=payload["topic"], ...)
+```
+
+**Why:** Simulates the actual wire protocol. Ensures model compatibility when orchestrator serializes and scraper deserializes.
+
+## Test Organization
+
+**5 test classes, 30 tests total:**
+
+1. **TestScrapeExtractPipeline** (10 tests): Orchestrator → Scraper → Extractor → Knowledge flow
+2. **TestReasoningPipeline** (8 tests): Orchestrator → Reasoner → CompletionEvent
+3. **TestEvaluationCycle** (6 tests): Evaluator queries knowledge → produces scorecard
+4. **TestOrchestratorCompletionBuffers** (5 tests): Asyncio queue-based completion routing, timeout behavior
+5. **TestEndToEndPipelineMessageFlow** (1 test): Full iteration from scrape through evaluation
+
+## Key Patterns
+
+### Pattern 1: No Real Azure Dependencies
+```python
+# All tests use in-process simulators
+bus = PipelineMessageBus()  # NOT azure.servicebus.ServiceBusClient
+store = KnowledgeStoreSimulator()  # NOT azure.cosmos.CosmosClient
+```
+
+### Pattern 2: Field Constraint Validation
+```python
+# Every test validates Pydantic model constraints
+assert 0.0 <= result.confidence <= 1.0
+assert gap.severity in ("critical", "moderate", "minor")
+assert insight.id and insight.statement
+```
+
+### Pattern 3: Timeout Behavior Testing
+```python
+# Orchestrator completion buffers handle missing events
+completions = await orch_bus.wait_for_completions(
+    request_ids={"req-X", "req-Y-missing"},
+    timeout_seconds=0.1,
+)
+assert len(completions) == 1  # Only req-X received
+```
+
+### Pattern 4: Request ID Propagation
+```python
+# Verify request IDs flow correctly through pipeline
+assert scrape_completion.request_id == orch_req.request_id
+assert extraction.request_id == orch_req.request_id
+assert reasoning_result.request_id == reason_req.request_id
+```
+
+## What NOT to Do
+
+❌ **Mock at the business logic level** — tests would validate mocks, not message flow  
+❌ **Use real Azure resources** — integration tests should run without Azure credentials  
+❌ **Full service implementations in simulators** — keep them minimal, just enough for message validation  
+❌ **Skip JSON round-trip testing** — wire format compatibility is critical  
+
+## Test Execution
+
+```bash
+# Run all integration tests
+python -m pytest tests/test_integration.py -v
+
+# Run specific test class
+python -m pytest tests/test_integration.py::TestScrapeExtractPipeline -v
+
+# Run with integration marker
+python -m pytest -m integration -v
+```
+
+**Performance:** 30 tests execute in <1 second (0.93s). Fast enough for CI/CD.
+
+## Benefits
+
+1. **Fast:** No network calls, no Azure SDK initialization
+2. **Reliable:** No flaky tests from transient network issues
+3. **Self-contained:** Runs anywhere Python is installed
+4. **Message contract validation:** Tests actual serialization/deserialization
+5. **Pipeline orchestration testing:** Validates completion buffer behavior
+6. **Easy debugging:** All message routing visible in-process
+
+## Impact on Future Work
+
+- **New pipeline stages:** Add a simulator and test class following these patterns
+- **Message format changes:** Wire format tests will catch incompatibilities immediately
+- **Orchestrator changes:** Completion buffer tests validate coordination logic
+- **Service contract changes:** Field constraint tests will catch violations
+
+## Related Decisions
+
+- **System Architecture (2026-03-12):** Azure Service Bus for inter-service communication
+- **Test Infrastructure (2026-03-12):** TDD-first, tests from requirements not implementation
+
+---
+
+**Result:** 30 integration tests, 100% pass rate, 0.93s execution time, zero Azure dependencies.
+
+### Local Development Emulator Authentication — IMPLEMENTED (2026-03-13)
+
+
+**Author:** Tank (Backend Dev)  
+**Date:** 2026-03-12  
+**Context:** PR #16 emulator authentication fix  
+**Status:** ✅ IMPLEMENTED — committed, approved, ready to merge
+
+## Summary
+
+Fixed the blocking authentication issue in PR #16 that prevented services from connecting to Cosmos DB emulator and Azurite during local development.
+
+## Implementation
+
+All services now implement **conditional authentication** based on endpoint detection:
+
+### Services Modified
+1. **Knowledge Service** (`src/knowledge/cosmos_client.py`) — Cosmos DB client
+2. **Orchestrator Service** (`src/orchestrator/cosmos_client.py`) — Cosmos DB client
+3. **Scraper Service** (`src/scraper/storage.py`) — Both Cosmos DB and Azurite clients
+4. **Extractor Service** (`src/extractor/blob_storage.py`) — Azurite client
+
+### Pattern Applied
+
+```python
+# Cosmos DB detection
+def _is_cosmos_emulator(endpoint: str) -> bool:
+    return "localhost:8081" in endpoint or "cosmos:8081" in endpoint
+
+# Azurite detection
+def _is_azurite(account_url: str) -> bool:
+    return (
+        "azurite:" in account_url
+        or "localhost:10000" in account_url
+        or "devstoreaccount1" in account_url
+    )
+
+# Client initialization with conditional auth
+if _is_cosmos_emulator(endpoint):
+    client = CosmosClient(endpoint, credential=COSMOS_EMULATOR_KEY)
+else:
+    client = CosmosClient(endpoint, credential=DefaultAzureCredential())
+```
+
+## Well-Known Keys Used
+
+- **Cosmos DB Emulator:** `C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n7QOoRmP4MVTM+5CTVEX0Nz+6tg==`
+- **Azurite:** `Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==`
+
+These are public, documented keys from Microsoft — safe to include in source code.
+
+## Testing
+
+- **All tests passing:** 371 passed, 1 skipped
+- **No regressions:** Existing test suite validates production code paths continue working
+- **Zero production impact:** Endpoint detection ensures emulator keys only used locally
+
+## Result
+
+✅ **PR #16 approved** — Docker Compose local development environment now fully functional  
+✅ **Local testing enabled** — Services can start and connect to emulators  
+✅ **Production unchanged** — DefaultAzureCredential still used for Azure deployments
+
+## References
+
+- PR: https://github.com/jmservera/selflearning/pull/16
+- Commit: 16a7fd6
+- Original decision doc: `.squad/decisions/inbox/tank-pr16-emulator-auth.md` (on PR branch)
+
+### API Gateway OpenAPI Documentation Standards (2026-03-13)
+
+
+**Author:** Tank (Backend Dev)  
+**Date:** 2026-03-12  
+**Status:** Accepted
+
+## Decision
+
+All FastAPI services in this project **MUST** include complete OpenAPI metadata and documentation:
+
+1. **Required FastAPI constructor fields:**
+   - `title` — Service name (e.g., "selflearning API Gateway")
+   - `description` — What the service does, multi-line acceptable
+   - `version` — Semantic version (currently "0.1.0")
+   - `contact` — Dict with at least `name` and `url`
+   - `openapi_tags` — List of tag groups with descriptions
+
+2. **Required endpoint annotations:**
+   - `tags=[...]` — Every endpoint must have at least one tag
+   - `response_model=...` — All endpoints must declare typed responses
+   - Docstring — Brief summary of what the endpoint does
+
+3. **Swagger UI / ReDoc:**
+   - `/docs` (Swagger UI) and `/redoc` (ReDoc) MUST be enabled (FastAPI default)
+   - Never set `docs_url=None` or `redoc_url=None` unless there's a security justification
+   - `/openapi.json` schema endpoint must remain accessible
+
+## Rationale
+
+PR #19 revealed that API Gateway had incomplete OpenAPI metadata — several endpoints had no `response_model`, no docstrings, and no tags. This made `/docs` sparse and hard to navigate.
+
+**Why this matters:**
+- **Developer experience:** Teams integrating with our APIs need clear, interactive documentation
+- **Contract enforcement:** `response_model` ensures FastAPI validates responses at runtime — catches bugs early
+- **Discoverability:** Tags organize endpoints into logical groups, reducing cognitive load
+- **Type safety:** Typed responses enable auto-generated client SDKs (TypeScript, Python, etc.)
+
+**Security note:** OpenAPI docs expose the API contract, not data. For internal-only services, we can restrict access via network policies (Container Apps internal ingress). For public APIs, docs are a feature, not a risk.
+
+## Implementation
+
+See PR #19 as reference implementation:
+- Added `HealthStatus` and `CommandResponse` Pydantic models
+- Annotated all 19 endpoints with `tags` and `response_model`
+- Added 13 endpoint docstrings
+- Added 5 OpenAPI tag groups: health, topics, knowledge, dashboard, chat
+
+## Impact
+
+- **Existing services:** Scraper, Extractor, Knowledge, Reasoner, Evaluator, Orchestrator, Healer all need the same treatment
+- **Future services:** Follow API Gateway pattern from day one
+- **Testing:** Add `TestOpenAPIDocumentation` class to verify `/docs`, `/redoc`, `/openapi.json` work
+
+### PR #21: Scraper and Extractor Endpoint Tests (2026-03-13)
+
+
+**Context:** PR #21 adds FastAPI endpoint tests for Scraper and Extractor services, completing the endpoint test coverage for all data ingestion services.
+
+**Decision:** Approved the following test patterns for Scraper and Extractor services:
+
+## Test Coverage Pattern
+- `/health` endpoint: Basic liveness check (200 status, service name validation)
+- `/status` endpoint: Detailed component health with multiple scenarios:
+  - Healthy state: all components "connected" or "ready"
+  - Degraded states: specific component failures (blob storage, cosmos DB, service bus, LLM client, extraction pipeline)
+  - Runtime stats: started_at timestamp, consumer_running flag, crawl history, message processing counters
+
+## Implementation Details
+
+### Scraper Service (5 tests)
+- Tests cover: blob storage, cosmos DB, service bus consumer/publisher
+- Mock integration: `mock_history.get_crawl_stats()` returns crawl statistics
+- Stats validation: consumer.stats (messages_processed), publisher.stats (messages_published)
+
+### Extractor Service (4 tests)
+- Tests cover: LLM client, blob storage, service bus, extraction pipeline
+- Status endpoint added to src/extractor/main.py (+21 lines)
+- Component states: connected/not_initialized for each dependency
+- Consumer task monitoring: checks `_consumer_task.done()` status
+
+## Test Infrastructure Pattern
+Both services follow the established pattern from test_knowledge.py:
+1. `_setup_{service}_path()` function to manage sys.path and module imports
+2. Module-level singleton mocking (clients, consumers, publishers)
+3. AsyncClient + ASGITransport for FastAPI testing
+4. Fixture cleanup: restore sys.path, clear sys.modules after each test
+
+## Quality Bar
+- All tests pass cleanly (71/71 across both services)
+- Degraded state testing covers all critical Azure dependencies
+- Pattern consistency across Knowledge, Scraper, and Extractor services
+- 80%+ coverage maintained (meets Niobe's quality threshold)
+
+**Rationale:** These patterns ensure consistent endpoint testing across all services while validating graceful degradation behavior for Azure service dependencies. The test infrastructure safely handles module import conflicts when running the full test suite.
+
+**Impact:** Completes endpoint test coverage for data ingestion pipeline (Scraper → Extractor → Knowledge). Establishes reusable pattern for remaining services (Reasoner, Orchestrator, Healer, API Gateway).
+
+---
+**Author:** Niobe (Tester/Evaluator)  
+**Date:** 2026-03-13  
+**Related:** PR #21, Issue #3
 
 ## Governance
 
