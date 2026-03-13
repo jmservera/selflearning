@@ -151,13 +151,12 @@ for svc in "${SERVICES[@]}"; do
   image_latest="selflearning-${svc}:latest"
   image_sha="selflearning-${svc}:${GIT_SHA}"
   context="${REPO_ROOT}/src/${svc}/"
-  dockerfile="${REPO_ROOT}/src/${svc}/Dockerfile"
 
   az acr build \
     --registry "${REGISTRY}" \
     --image "${image_latest}" \
     --image "${image_sha}" \
-    --file "${dockerfile}" \
+    --file "Dockerfile" \
     "${context}"
 
   log "Successfully built '${svc}' → ${REGISTRY}.azurecr.io/${image_latest}"
