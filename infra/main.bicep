@@ -147,6 +147,7 @@ module identity 'modules/identity.bicep' = {
     storageAccountName: storage.outputs.storageAccountName
     keyVaultName: keyVault.outputs.keyVaultName
     aiSearchName: aiSearch.outputs.aiSearchName
+    containerRegistryName: containerRegistry.outputs.registryName
   }
 }
 
