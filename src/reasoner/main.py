@@ -2,6 +2,9 @@
 
 FastAPI application with:
 - Health-check endpoint (``/health``)
+- Status endpoint (``/status``)
+- Direct reasoning endpoint (``POST /reason``)
+- Result retrieval endpoints (``GET /results``, ``GET /results/{request_id}``)
 - Startup / shutdown lifecycle hooks
 - Background Service Bus consumer loop
 """
@@ -13,7 +16,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from config import ReasonerConfig
 from llm_client import LLMClient
@@ -30,6 +33,10 @@ knowledge_client: KnowledgeServiceClient | None = None
 engine: ReasoningEngine | None = None
 service_bus: ServiceBusHandler | None = None
 _consumer_task: asyncio.Task | None = None
+
+# In-memory result store (request_id → result)
+_results: dict[str, ReasoningResult] = {}
+_MAX_STORED_RESULTS = 100
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +71,17 @@ async def handle_reasoning_request(body: dict[str, Any]) -> dict[str, Any]:
 
     result: ReasoningResult = await engine.run(request)
 
+    _store_result(result)
+
     return result.model_dump(exclude_none=True)
+
+
+def _store_result(result: ReasoningResult) -> None:
+    """Persist *result* in the in-memory store, evicting oldest entries."""
+    _results[result.request_id] = result
+    if len(_results) > _MAX_STORED_RESULTS:
+        oldest_key = next(iter(_results))
+        _results.pop(oldest_key, None)
 
 
 # ---------------------------------------------------------------------------
@@ -131,3 +148,47 @@ app = FastAPI(
 async def health() -> dict[str, str]:
     """Liveness / readiness probe."""
     return {"status": "healthy", "service": "reasoner"}
+
+
+@app.get("/status")
+async def status() -> dict[str, Any]:
+    """Service status including readiness of sub-components."""
+    return {
+        "service": "reasoner",
+        "engine": "ready" if engine is not None else "not_initialized",
+        "knowledge_client": "ready" if knowledge_client is not None else "not_initialized",
+        "service_bus": "ready" if service_bus is not None else "not_configured",
+        "stored_results": len(_results),
+    }
+
+
+@app.post("/reason", response_model=ReasoningResult)
+async def reason(request: ReasoningRequest) -> ReasoningResult:
+    """Trigger a reasoning operation directly via HTTP."""
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Reasoning engine not initialized")
+
+    result = await engine.run(request)
+    _store_result(result)
+    return result
+
+
+@app.get("/results/{request_id}", response_model=ReasoningResult)
+async def get_result(request_id: str) -> ReasoningResult:
+    """Retrieve a reasoning result by its request ID."""
+    result = _results.get(request_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No result found for request_id '{request_id}'",
+        )
+    return result
+
+
+@app.get("/results", response_model=list[ReasoningResult])
+async def list_results(limit: int = 20) -> list[ReasoningResult]:
+    """List the most recent reasoning results, newest first."""
+    if limit < 1:
+        limit = 20
+    all_results = list(_results.values())
+    return list(reversed(all_results))[:limit]
