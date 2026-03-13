@@ -147,51 +147,339 @@ module identity 'modules/identity.bicep' = {
     storageAccountName: storage.outputs.storageAccountName
     keyVaultName: keyVault.outputs.keyVaultName
     aiSearchName: aiSearch.outputs.aiSearchName
+    aiFoundryAccountName: aiFoundry.outputs.accountName
   }
 }
 
-// Container Apps — backend services (Python, port 8000)
-var backendServices = [
-  { name: 'scraper', external: false }
-  { name: 'extractor', external: false }
-  { name: 'knowledge', external: false }
-  { name: 'reasoner', external: false }
-  { name: 'evaluator', external: false }
-  { name: 'orchestrator', external: false }
-  { name: 'healer', external: false }
-  { name: 'api', external: true }
+// Key Vault Secrets — store sensitive config values for Container Apps secret references
+module keyVaultSecrets 'modules/key-vault-secrets.bicep' = {
+  name: 'key-vault-secrets'
+  scope: rg
+  params: {
+    keyVaultName: keyVault.outputs.keyVaultName
+    appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
+  }
+}
+
+// Shared secrets — Key Vault-backed, mounted into every backend container app
+var sharedSecrets = [
+  {
+    name: 'appinsights-connection-string'
+    kvSecretName: 'applicationinsights-connection-string'
+  }
 ]
 
+// Shared env vars common to all backend services
 var backendEnv = [
   { name: 'AZURE_AI_FOUNDRY_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
   { name: 'AZURE_COSMOS_ENDPOINT', value: cosmosDb.outputs.endpoint }
   { name: 'AZURE_SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
   { name: 'AZURE_STORAGE_ACCOUNT', value: storage.outputs.storageAccountName }
   { name: 'AZURE_SEARCH_ENDPOINT', value: aiSearch.outputs.endpoint }
-  {
-    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-    value: monitoring.outputs.appInsightsConnectionString
-  }
+  { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
   { name: 'AZURE_CLIENT_ID', value: identity.outputs.identityClientId }
 ]
 
-module containerApps 'modules/container-app.bicep' = [
-  for service in backendServices: {
-    name: 'ca-${service.name}'
-    scope: rg
-    params: {
-      location: location
-      tags: tags
-      serviceName: service.name
-      containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
-      containerRegistryLoginServer: containerRegistry.outputs.loginServer
-      identityId: identity.outputs.identityId
-      identityClientId: identity.outputs.identityClientId
-      external: service.external
-      env: backendEnv
-    }
+// --- Container Apps — one per backend service ---
+
+module caScraperApp 'modules/container-app.bicep' = {
+  name: 'ca-scraper'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'scraper'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: false
+    minReplicas: 0
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
+    env: concat(backendEnv, [
+      { name: 'SCRAPER_SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
+      { name: 'SCRAPER_BLOB_ACCOUNT_URL', value: storage.outputs.blobEndpoint }
+      { name: 'SCRAPER_COSMOS_ENDPOINT', value: cosmosDb.outputs.endpoint }
+    ])
+    serviceBusNamespace: serviceBus.outputs.fullyQualifiedNamespace
+    serviceBusQueueName: 'scrape-requests'
+    scaleIdentityId: identity.outputs.identityId
+    kedaMessageCount: 20
   }
-]
+  dependsOn: [keyVaultSecrets]
+}
+
+module caExtractorApp 'modules/container-app.bicep' = {
+  name: 'ca-extractor'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'extractor'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: false
+    minReplicas: 0
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
+    env: concat(backendEnv, [
+      { name: 'SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
+      { name: 'STORAGE_ACCOUNT_URL', value: storage.outputs.blobEndpoint }
+      { name: 'AZURE_AI_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
+    ])
+    serviceBusNamespace: serviceBus.outputs.fullyQualifiedNamespace
+    serviceBusTopicName: 'scrape-complete'
+    serviceBusSubscriptionName: 'extractor'
+    scaleIdentityId: identity.outputs.identityId
+    kedaMessageCount: 20
+  }
+  dependsOn: [keyVaultSecrets]
+}
+
+module caKnowledgeApp 'modules/container-app.bicep' = {
+  name: 'ca-knowledge'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'knowledge'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: false
+    minReplicas: 0
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
+    env: concat(backendEnv, [
+      { name: 'COSMOS_CONTAINER_NAME', value: 'knowledge' }
+      { name: 'SEARCH_INDEX_PREFIX', value: 'selflearning' }
+    ])
+    serviceBusNamespace: serviceBus.outputs.fullyQualifiedNamespace
+    serviceBusTopicName: 'extraction-complete'
+    serviceBusSubscriptionName: 'knowledge-service'
+    scaleIdentityId: identity.outputs.identityId
+    kedaMessageCount: 20
+  }
+  dependsOn: [keyVaultSecrets]
+}
+
+module caReasonerApp 'modules/container-app.bicep' = {
+  name: 'ca-reasoner'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'reasoner'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: false
+    minReplicas: 0
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
+    env: concat(backendEnv, [
+      { name: 'SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
+      { name: 'AZURE_AI_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
+      {
+        name: 'KNOWLEDGE_SERVICE_URL'
+        value: 'https://ca-knowledge.${containerAppsEnv.outputs.defaultDomain}'
+      }
+    ])
+    serviceBusNamespace: serviceBus.outputs.fullyQualifiedNamespace
+    serviceBusQueueName: 'reasoning-requests'
+    scaleIdentityId: identity.outputs.identityId
+    kedaMessageCount: 10
+  }
+  dependsOn: [keyVaultSecrets]
+}
+
+module caEvaluatorApp 'modules/container-app.bicep' = {
+  name: 'ca-evaluator'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'evaluator'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: false
+    minReplicas: 0
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
+    env: concat(backendEnv, [
+      { name: 'COSMOS_ENDPOINT', value: cosmosDb.outputs.endpoint }
+      {
+        name: 'KNOWLEDGE_SERVICE_URL'
+        value: 'https://ca-knowledge.${containerAppsEnv.outputs.defaultDomain}'
+      }
+    ])
+  }
+  dependsOn: [keyVaultSecrets]
+}
+
+module caOrchestratorApp 'modules/container-app.bicep' = {
+  name: 'ca-orchestrator'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'orchestrator'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: false
+    minReplicas: 1
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
+    env: concat(backendEnv, [
+      { name: 'ORCHESTRATOR_SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
+      { name: 'ORCHESTRATOR_AI_FOUNDRY_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
+      { name: 'ORCHESTRATOR_COSMOS_ENDPOINT', value: cosmosDb.outputs.endpoint }
+      { name: 'ORCHESTRATOR_SUBSCRIPTION_NAME', value: 'orchestrator-sub' }
+      {
+        name: 'ORCHESTRATOR_SCRAPER_URL'
+        value: 'https://ca-scraper.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'ORCHESTRATOR_EXTRACTOR_URL'
+        value: 'https://ca-extractor.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'ORCHESTRATOR_KNOWLEDGE_URL'
+        value: 'https://ca-knowledge.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'ORCHESTRATOR_REASONER_URL'
+        value: 'https://ca-reasoner.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'ORCHESTRATOR_EVALUATOR_URL'
+        value: 'https://ca-evaluator.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'ORCHESTRATOR_HEALER_URL'
+        value: 'https://ca-healer.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'ORCHESTRATOR_API_URL'
+        value: 'https://ca-api.${containerAppsEnv.outputs.defaultDomain}'
+      }
+    ])
+  }
+  dependsOn: [keyVaultSecrets]
+}
+
+module caHealerApp 'modules/container-app.bicep' = {
+  name: 'ca-healer'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'healer'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: false
+    minReplicas: 1
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
+    env: concat(backendEnv, [
+      { name: 'HEALER_SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
+      { name: 'HEALER_AI_FOUNDRY_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
+      { name: 'HEALER_SUBSCRIPTION_ID', value: subscription().subscriptionId }
+      { name: 'HEALER_RESOURCE_GROUP', value: rg.name }
+      { name: 'HEALER_CONTAINER_APP_ENV', value: containerAppsEnv.outputs.environmentName }
+      {
+        name: 'HEALER_SCRAPER_URL'
+        value: 'https://ca-scraper.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'HEALER_EXTRACTOR_URL'
+        value: 'https://ca-extractor.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'HEALER_KNOWLEDGE_URL'
+        value: 'https://ca-knowledge.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'HEALER_REASONER_URL'
+        value: 'https://ca-reasoner.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'HEALER_EVALUATOR_URL'
+        value: 'https://ca-evaluator.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'HEALER_ORCHESTRATOR_URL'
+        value: 'https://ca-orchestrator.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'HEALER_API_URL'
+        value: 'https://ca-api.${containerAppsEnv.outputs.defaultDomain}'
+      }
+    ])
+  }
+  dependsOn: [keyVaultSecrets]
+}
+
+module caApiApp 'modules/container-app.bicep' = {
+  name: 'ca-api'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    serviceName: 'api'
+    containerAppsEnvironmentId: containerAppsEnv.outputs.environmentId
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    identityId: identity.outputs.identityId
+    identityClientId: identity.outputs.identityClientId
+    external: true
+    minReplicas: 1
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
+    env: concat(backendEnv, [
+      { name: 'AZURE_SERVICEBUS_NAMESPACE', value: serviceBus.outputs.fullyQualifiedNamespace }
+      {
+        name: 'KNOWLEDGE_SERVICE_URL'
+        value: 'https://ca-knowledge.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'ORCHESTRATOR_SERVICE_URL'
+        value: 'https://ca-orchestrator.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'EVALUATOR_SERVICE_URL'
+        value: 'https://ca-evaluator.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'HEALER_SERVICE_URL'
+        value: 'https://ca-healer.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'SCRAPER_SERVICE_URL'
+        value: 'https://ca-scraper.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'EXTRACTOR_SERVICE_URL'
+        value: 'https://ca-extractor.${containerAppsEnv.outputs.defaultDomain}'
+      }
+      {
+        name: 'REASONER_SERVICE_URL'
+        value: 'https://ca-reasoner.${containerAppsEnv.outputs.defaultDomain}'
+      }
+    ])
+  }
+  dependsOn: [keyVaultSecrets]
+}
 
 // UI Container App (nginx, port 80)
 module uiContainerApp 'modules/container-app.bicep' = {
@@ -207,10 +495,15 @@ module uiContainerApp 'modules/container-app.bicep' = {
     identityClientId: identity.outputs.identityClientId
     external: true
     targetPort: 80
+    minReplicas: 1
+    keyVaultUri: keyVault.outputs.keyVaultUri
+    secrets: sharedSecrets
     env: [
-      { name: 'API_GATEWAY_URL', value: 'https://${containerApps[7].outputs.fqdn}' }
+      { name: 'API_GATEWAY_URL', value: 'https://${caApiApp.outputs.fqdn}' }
+      { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
     ]
   }
+  dependsOn: [keyVaultSecrets]
 }
 
 // Outputs for azd
@@ -221,5 +514,5 @@ output AZURE_COSMOS_ENDPOINT string = cosmosDb.outputs.endpoint
 output AZURE_SERVICEBUS_NAMESPACE string = serviceBus.outputs.fullyQualifiedNamespace
 output AZURE_STORAGE_ACCOUNT string = storage.outputs.storageAccountName
 output AZURE_SEARCH_ENDPOINT string = aiSearch.outputs.endpoint
-output API_GATEWAY_URL string = 'https://${containerApps[7].outputs.fqdn}'
+output API_GATEWAY_URL string = 'https://${caApiApp.outputs.fqdn}'
 output UI_URL string = 'https://${uiContainerApp.outputs.fqdn}'
