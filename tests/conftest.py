@@ -493,6 +493,7 @@ async def evaluator_client(
             main_module.engine = eval_engine
             main_module.knowledge_client = kc
             main_module.publisher = None
+            main_module.cosmos_client = None
             main_module.settings = settings
 
             transport = ASGITransport(app=app)
@@ -504,3 +505,4 @@ async def evaluator_client(
             # Cleanup
             main_module.engine = None
             main_module.knowledge_client = None
+            main_module.cosmos_client = None

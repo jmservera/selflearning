@@ -98,6 +98,21 @@ resource pipelineContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/c
   }
 }
 
+resource evaluationsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: database
+  name: 'evaluations'
+  properties: {
+    resource: {
+      id: 'evaluations'
+      partitionKey: {
+        paths: ['/topic']
+        kind: 'Hash'
+        version: 2
+      }
+    }
+  }
+}
+
 output accountId string = cosmosAccount.id
 output accountName string = cosmosAccount.name
 output endpoint string = cosmosAccount.properties.documentEndpoint

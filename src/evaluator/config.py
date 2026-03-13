@@ -16,6 +16,10 @@ class Settings:
     service_bus_topic: str = "evaluation-complete"
     max_questions_per_eval: int = 20
     scorecard_history_limit: int = 50
+    # Cosmos DB (optional — falls back to in-memory when not set)
+    cosmos_endpoint: str = ""
+    cosmos_database: str = "selflearning"
+    cosmos_container: str = "evaluations"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -30,4 +34,7 @@ class Settings:
             service_bus_topic=os.getenv("EVALUATION_TOPIC", "evaluation-complete"),
             max_questions_per_eval=int(os.getenv("MAX_QUESTIONS_PER_EVAL", "20")),
             scorecard_history_limit=int(os.getenv("SCORECARD_HISTORY_LIMIT", "50")),
+            cosmos_endpoint=os.getenv("COSMOS_ENDPOINT", ""),
+            cosmos_database=os.getenv("COSMOS_DATABASE", "selflearning"),
+            cosmos_container=os.getenv("COSMOS_EVALUATIONS_CONTAINER", "evaluations"),
         )
