@@ -54,7 +54,8 @@ Your machine only needs the `az` CLI — no Docker daemon required.
 ```
 
 This queues a remote build in ACR for every service (`api`, `scraper`, `extractor`,
-`knowledge`, `reasoner`, `evaluator`, `orchestrator`, `healer`).
+`knowledge`, `reasoner`, `evaluator`, `orchestrator`, `healer`, `ui`).
+To see all available services dynamically, run `ls src/*/Dockerfile`.
 
 ### Build a single service
 
@@ -68,11 +69,14 @@ a fast turnaround.
 ### Checking build status in ACR
 
 ```bash
+# Your registry name is set by azd up — retrieve it with:
+echo $AZURE_CONTAINER_REGISTRY_NAME
+
 # List the most recent builds for your registry
-az acr task list-runs --registry <ACR_NAME> --output table
+az acr task list-runs --registry $AZURE_CONTAINER_REGISTRY_NAME --output table
 
 # Stream logs for a specific build run
-az acr task logs --registry <ACR_NAME> --run-id <RUN_ID>
+az acr task logs --registry $AZURE_CONTAINER_REGISTRY_NAME --run-id <RUN_ID>
 ```
 
 You can also view builds in the [Azure Portal](https://portal.azure.com) under
@@ -101,7 +105,7 @@ Using the SHA tag lets you pin deployments to a specific commit and roll back sa
 
 ## CI/CD Workflow
 
-The GitHub Actions workflow at `.github/workflows/build.yml` automatically builds all
+The GitHub Actions workflow at `.github/workflows/acr-build.yml` automatically builds all
 service images on every push to the `main` branch:
 
 1. **Trigger:** push to `main`
@@ -154,5 +158,5 @@ your `AZURE_CONTAINER_REGISTRY_NAME` environment variable (set by `azd`) is corr
 ### Build queued but no progress
 Check the ACR run logs:
 ```bash
-az acr task list-runs --registry <ACR_NAME> --output table
+az acr task list-runs --registry $AZURE_CONTAINER_REGISTRY_NAME --output table
 ```
