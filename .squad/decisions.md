@@ -221,6 +221,168 @@ Built complete Chat and Knowledge Explorer pages with 11 reusable React/TypeScri
 
 7. **Expandable Citations** — Citation snippets truncated at 120 characters with "Show more" toggle. Sources section collapsed by default with count badge. **Rationale:** Reduces scrolling on multi-source answers. 120 chars enough context. Expandable design puts user in control. Badge signals richness without space.
 
+### Graceful Fallback Pattern for Service Persistence Migration (2026-03-13)
+
+**Author:** Morpheus (Lead/Architect)  
+**Status:** Accepted — Pattern for future migrations
+
+When migrating a service from in-memory storage to external persistence (Cosmos DB, Redis, etc.), use a **graceful fallback pattern** that maintains in-memory stores as a safety net.
+
+**Implementation pattern:**
+```python
+# Global state
+cosmos_client: CosmosClient | None = None
+_in_memory_store: dict = {}
+
+# Initialization (in lifespan)
+if settings.cosmos_endpoint:
+    cosmos_client = CosmosClient(settings)
+    try:
+        await cosmos_client.initialize()
+    except Exception as exc:
+        logger.warning("Cosmos failed, falling back to in-memory: %s", exc)
+        cosmos_client = None
+
+# Read/write paths
+if cosmos_client is not None:
+    try:
+        return await cosmos_client.read(key)
+    except Exception as exc:
+        logger.error("Cosmos read failed, falling back: %s", exc)
+# Fall through to in-memory
+return _in_memory_store.get(key)
+```
+
+**Benefits:**
+1. Zero-downtime migration during Cosmos provisioning
+2. Development ergonomics (no external dependencies required locally)
+3. Production safety (transient Cosmos failures don't crash)
+4. Progressive rollout (dev → staging → prod)
+5. Rollback simplicity (unset `COSMOS_ENDPOINT` to revert)
+
+**Health check strategy:**
+- `not_configured` = expected (local dev or intentional in-memory mode)
+- `not_initialized` = config present but initialization failed (investigate)
+- `error` = initialized but not responding (Cosmos outage)
+- `ok` = fully operational
+
+**Services suitable for graceful fallback:**
+- ✅ Evaluator (implemented in PR #15)
+- ✅ Reasoner (if persisting chains)
+- ✅ Healer (diagnostics)
+
+**Services requiring fail-closed (refuse startup without persistence):**
+- ❌ Knowledge service (shared source of truth)
+- ❌ Orchestrator (pipeline state consistency)
+- ❌ Scraper (dedup history prevents duplicate work)
+
+**Implementation notes:**
+- In-memory stores remain in code indefinitely (not technical debt — they're the fallback)
+- Log every fallback event at ERROR level
+- Monitor Cosmos vs in-memory usage in telemetry
+- Test both code paths in CI (with/without Cosmos)
+
+### Reasoner HTTP Endpoints and Result Storage (2026-03-13)
+
+**Author:** Niobe (Tester)  
+**Status:** Accepted
+
+The Reasoner service exposes direct HTTP endpoints for reasoning operations and result retrieval, complementing the existing Service Bus pipeline.
+
+**Endpoints:**
+- `GET /status` — Component readiness (engine, knowledge_client, service_bus, result cache count)
+- `POST /reason` — Direct HTTP reasoning trigger (accepts ReasoningRequest, returns ReasoningResult)
+- `GET /results/{request_id}` — Retrieve specific result by ID (404 if not found)
+- `GET /results?limit=N` — List recent results, newest first (default 20, respects limit parameter)
+
+**Result storage:**
+- In-memory dictionary with FIFO eviction (max 100 entries)
+- Stores results from both Service Bus handler and HTTP POST
+- Cleared on service restart (transient cache, not persistent)
+
+**Error handling:**
+- 503 when reasoning engine not initialized
+- 404 when result not found
+- Limit parameter sanitization (< 1 defaults to 20)
+
+**Rationale:**
+1. **Debuggability:** Direct HTTP allows manual testing without Service Bus
+2. **Observability:** `/status` endpoint provides component health visibility
+3. **Result audit:** 100-entry cache provides recent history for debugging
+4. **No breaking changes:** Service Bus handler continues unchanged
+
+**Implications:**
+- Memory usage: ~5 MB worst case (100 results × ~50 KB average)
+- Persistence: Results lost on restart (acceptable for debug cache)
+- Concurrency: Dict is asyncio single-threaded (safe)
+- Scaling: Each instance has independent cache (not shared)
+
+**Future considerations:**
+- Cosmos DB persistent storage (partition by topic, TTL cleanup)
+- Topic-filtered queries (`?topic=X`)
+- Result pagination for large sets
+- Redis for cross-instance shared caching
+
+### Local Development Emulator Authentication Pattern (2026-03-13)
+
+**Author:** Tank (Backend Dev)  
+**Status:** PROPOSED — blocking implementation required
+
+Services use `DefaultAzureCredential` for Azure authentication. This works in production with managed identity but **fails with local emulators** which only support account key authentication.
+
+**Affected services:**
+- Knowledge Service → Cosmos DB emulator (port 8081)
+- Scraper Service → Cosmos DB emulator + Azurite (port 10000)
+- Orchestrator Service → Cosmos DB emulator
+- Extractor Service → Azurite
+
+**Solution: Conditional authentication** based on endpoint detection:
+
+```python
+# Cosmos DB pattern
+def create_cosmos_client(endpoint: str) -> CosmosClient:
+    if "localhost:8081" in endpoint or endpoint.startswith("https://cosmos:"):
+        # Emulator: use well-known master key (documented, public, safe for local dev)
+        return CosmosClient(
+            endpoint, 
+            credential="C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5n7QOoRmP4MVTM+5CTVEX0Nz+6tg=="
+        )
+    else:
+        # Production: use managed identity
+        return CosmosClient(endpoint, credential=DefaultAzureCredential())
+
+# Azurite pattern
+def create_blob_client(account_url: str) -> BlobServiceClient:
+    if "azurite:" in account_url or "localhost:10000" in account_url or "devstoreaccount1" in account_url:
+        # Emulator: use well-known account key
+        return BlobServiceClient(
+            account_url,
+            credential="Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+        )
+    else:
+        # Production: use managed identity
+        return BlobServiceClient(account_url, credential=DefaultAzureCredential())
+```
+
+**Rationale:**
+1. **Security:** Well-known emulator keys are public (documented in Azure docs). Production uses managed identity — no secrets in code.
+2. **Developer experience:** Services "just work" locally without Azure AD token acquisition
+3. **Zero production impact:** Conditional logic only triggers on emulator endpoints
+4. **Cosmos DB limitation:** TLS cert is self-signed — may need `connection_verify=False`
+
+**Implementation notes:**
+- Add helper functions in each service's storage module
+- Detection heuristics: `localhost:8081`, `cosmos:8081`, `azurite:`, `devstoreaccount1`
+- Optional: explicit `USE_EMULATOR_AUTH=true` env var for clarity (endpoint detection is more robust)
+- Consider: wrapper for `connection_verify=False` when emulator detected
+
+**Team assignments:**
+- **Trinity (Data):** Scraper service (Cosmos + Azurite auth)
+- **Oracle (AI/ML):** Extractor service (Azurite auth)
+- **Morpheus (Lead):** Orchestrator service (Cosmos auth)
+
+**Blocker status:** Prevents local testing of full pipeline until implemented
+
 ## Governance
 
 - All meaningful changes require team consensus

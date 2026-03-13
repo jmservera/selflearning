@@ -43,3 +43,10 @@
 - **Incoming dependencies:** Evaluator queries Knowledge service endpoints for entity/claim/relationship stats; Orchestrator publishes evaluation-complete events; Scraper/Extractor/Reasoner outputs are evaluated by my scoring engine
 - **Next iteration:** Integration testing, first learning loop (scrape → extract → organize → reason → evaluate → improve), production deployment prep
 
+### 2026-03-13: PR reviews round 2 (PRs #13-16)
+- **PR #13 (Reasoner HTTP endpoints):** APPROVED by Ralph. Niobe completed 382 tests, 1 skipped. Added HTTP endpoints for direct reasoning invocation and result retrieval (GET /status, POST /reason, GET /results/{id}). In-memory FIFO cache (100 entries). Pattern established for future services.
+- **PR #14 (API Gateway tests):** APPROVED by Ralph. Niobe completed 35 tests with 100% endpoint coverage. Ready for production deployment.
+- **PR #15 (Cosmos DB migration):** APPROVED by Ralph. Morpheus reviewed graceful fallback pattern — in-memory stores as safety net during external persistence failures. Zero-downtime migration, development ergonomics, production safety. Pattern documented for future migrations.
+- **PR #16 (Docker compose):** BLOCKED by emulator authentication issue. Tank identified missing conditional auth pattern — services default to managed identity (production) but emulators require account key authentication. Affects Knowledge, Scraper, Orchestrator, Extractor services. Solution pattern documented, awaiting implementation fixes from Trinity/Oracle/Morpheus.
+- **Impact:** 3 PRs merged (closing issues #4, #5, #6). 3 new patterns established in decisions.md. 1 high-priority blocker identified for local development.
+

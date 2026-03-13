@@ -80,3 +80,15 @@
 - **Code review (Morpheus):** APPROVED WITH NOTES — Type alignment fixed, architecture consistent, deployment ready
 - **Cross-agent awareness:** Oracle's Chat/Knowledge Explorer components use Tank's API client and type definitions. All frontend API calls use namespaced endpoints (api.chat.send, api.knowledge.search, etc.). Tank maintains type sync with backend — Oracle's components never drift from contracts.
 
+
+### 2026-03-13: PR reviews round 2 (PRs #13-16) — Docker Compose review & emulator auth blocker
+- **PR #13 (Reasoner HTTP endpoints):** APPROVED. 382 tests pass. Added GET /status, POST /reason, GET /results endpoints. Pattern for future services.
+- **PR #14 (API Gateway tests):** APPROVED. 35 tests, 100% endpoint coverage. Ready for production.
+- **PR #15 (Cosmos DB migration):** APPROVED. Graceful fallback pattern — in-memory stores as safety net during external persistence failures. Useful for Reasoner/Healer; not for Knowledge/Orchestrator/Scraper (fail-closed required).
+- **PR #16 (Docker compose):** CHANGES_REQUESTED. Identified critical blocker: local emulator authentication missing. All services default to DefaultAzureCredential (production managed identity) but Cosmos DB emulator + Azurite require well-known account keys. Affects Knowledge, Scraper, Orchestrator, Extractor services.
+  - **Solution documented:** Conditional auth pattern — detect emulator endpoints, use well-known keys; otherwise use DefaultAzureCredential
+  - **Implementation required:** Cosmos DB (localhost:8081, cosmos:8081) and Azurite (localhost:10000, devstoreaccount1) conditional auth in storage modules
+  - **Team assignments:** Trinity (Scraper auth fix), Oracle (Extractor auth fix), Morpheus (Orchestrator auth fix)
+  - **Blocker severity:** HIGH — prevents local testing of full pipeline until resolved
+- **Decisions merged:** 3 new patterns to .squad/decisions.md (Graceful Fallback, Reasoner HTTP Endpoints, Emulator Authentication)
+- **Next:** Re-review PR #16 after auth fixes implemented and verified
