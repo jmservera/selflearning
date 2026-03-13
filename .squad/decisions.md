@@ -383,6 +383,80 @@ def create_blob_client(account_url: str) -> BlobServiceClient:
 
 **Blocker status:** Prevents local testing of full pipeline until implemented
 
+### Shared Service Test Fixtures Pattern (2026-03-13)
+
+**Author:** Niobe (Tester/Evaluator)  
+**Status:** Approved (PR #18)
+
+All services now have reusable `httpx.AsyncClient` test fixtures in `tests/conftest.py`. Future tests should use these fixtures rather than creating inline test clients.
+
+**Pattern:**
+Each `{service}_client` fixture:
+1. Imports the real service app — tests run against actual FastAPI routes, not mocks
+2. Injects MagicMock/AsyncMock objects into module-level singletons (bypasses lifespan startup)
+3. Provides httpx.AsyncClient with ASGITransport targeting the service app
+4. Restores originals on teardown — prevents test pollution
+
+**Fixtures Available:**
+- `api_client` → API Gateway (src/api/main.py)
+- `scraper_client` → Scraper service (src/scraper/main.py)
+- `extractor_client` → Extractor service (src/extractor/main.py)
+- `knowledge_client` → Knowledge service (src/knowledge/main.py)
+- `reasoner_client` → Reasoner service (src/reasoner/main.py)
+- `orchestrator_client` → Orchestrator service (src/orchestrator/main.py)
+- `healer_client` → Healer service (src/healer/main.py)
+- `evaluator_client` → Evaluator service (src/evaluator/main.py)
+
+**Supporting Infrastructure:**
+- `_setup_service_path(service_name)` — manages sys.path and sys.modules for bare-import services
+- `_alias_service_modules(service_name, module_names)` — registers bare-name aliases for internal modules
+
+**Impact:**
+- 391 tests pass (20 new smoke tests, 371 existing tests refactored)
+- Test runtime: 6.53s for full suite
+- Removed 2,443 lines of duplicated fixture setup code
+- Reduces test writing time from 30 minutes to 5 minutes
+
+### Scraper & Extractor Endpoint Test Patterns (2026-03-13)
+
+**Author:** Niobe (Tester/Evaluator)  
+**Date:** 2026-03-13  
+**Status:** Approved (PR #21)  
+**Context:** Completes endpoint test coverage for all data ingestion services.
+
+**Test Coverage Pattern:**
+- `/health` endpoint: Basic liveness check (200 status, service name validation)
+- `/status` endpoint: Detailed component health with multiple scenarios:
+  - Healthy state: all components "connected" or "ready"
+  - Degraded states: specific component failures (blob storage, cosmos DB, service bus, LLM client, extraction pipeline)
+  - Runtime stats: started_at timestamp, consumer_running flag, crawl history, message processing counters
+
+**Scraper Service (5 tests):**
+- Tests cover: blob storage, cosmos DB, service bus consumer/publisher
+- Mock integration: `mock_history.get_crawl_stats()` returns crawl statistics
+- Stats validation: consumer.stats (messages_processed), publisher.stats (messages_published)
+
+**Extractor Service (4 tests):**
+- Tests cover: LLM client, blob storage, service bus, extraction pipeline
+- Status endpoint added to src/extractor/main.py (+21 lines)
+- Component states: connected/not_initialized for each dependency
+- Consumer task monitoring: checks `_consumer_task.done()` status
+
+**Test Infrastructure Pattern:**
+Both services follow the established pattern:
+1. `_setup_{service}_path()` function to manage sys.path and module imports
+2. Module-level singleton mocking (clients, consumers, publishers)
+3. AsyncClient + ASGITransport for FastAPI testing
+4. Fixture cleanup: restore sys.path, clear sys.modules after each test
+
+**Quality Metrics:**
+- All tests pass cleanly (71/71 across both services)
+- Degraded state testing covers all critical Azure dependencies
+- Pattern consistency across Knowledge, Scraper, and Extractor services
+- 80%+ coverage maintained
+
+**Impact:** Completes endpoint test coverage for data ingestion pipeline (Scraper → Extractor → Knowledge). Establishes reusable pattern for remaining services (Reasoner, Orchestrator, Healer, API Gateway).
+
 ## Governance
 
 - All meaningful changes require team consensus

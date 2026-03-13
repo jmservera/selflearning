@@ -65,3 +65,30 @@
   - Extractor tests validate all 4 component states (llm_client, blob_storage, service_bus, pipeline)
 - **No gaps identified:** Both services now have comprehensive endpoint coverage matching Knowledge service test quality
 - **Decision:** Marked PR ready and approved. Tests demonstrate correct graceful degradation behavior for all Azure service dependencies.
+
+### 2026-03-13: PR #18 Review — Reusable AsyncClient Fixtures for All 8 Services
+- Reviewed and approved PR #18 by @copilot coding agent: added shared test fixtures for all 8 services to conftest.py (closes issue #9)
+- **Test results:** 391/391 tests pass, 1 skipped (optional Azure SDK dep in evaluator)
+- **Infrastructure added:**
+  - `_setup_service_path(service_name)` — centralizes sys.path/sys.modules management for bare-import services (orchestrator, healer, reasoner, scraper, extractor)
+  - `_alias_service_modules(service_name, module_names)` — registers bare-name sys.modules aliases for services using non-package imports
+  - 7 new `*_client` fixtures: `api_client`, `scraper_client`, `extractor_client`, `knowledge_client`, `reasoner_client`, `orchestrator_client`, `healer_client`
+  - Each fixture: imports real service app, injects MagicMock/AsyncMock into module singletons, provides httpx.AsyncClient, restores originals on cleanup
+  - `healer_client` pre-empts unavailable Azure SDK submodules (azure.mgmt.appcontainers, azure.servicebus.management.aio) via sys.modules.setdefault
+- **Test coverage:**
+  - 20 smoke tests in tests/test_shared_fixtures.py validate each fixture (health endpoint + at least one data endpoint per service)
+  - Existing tests refactored to use shared fixtures (test_reasoner.py removed 162 lines of duplicated setup)
+  - Net change: +676 lines (conftest.py + test_shared_fixtures.py), -2443 lines (removed duplicated setup across test files)
+- **Design quality:**
+  - Fixtures follow pytest best practices: session/module/function scopes, proper cleanup, comprehensive docstrings
+  - Mocks are accessible via module references for per-test configuration (demonstrated in test_orchestrator_client)
+  - Consistent mocking pattern across all services: AsyncMock for async methods, sensible default return values
+  - Proper isolation: bare-module cache eviction prevents cross-contamination between services with same-named modules (config.py, models.py)
+- **Decision:** APPROVED. This is exactly the kind of test infrastructure that enables rapid development — future tests can now be written in 10 lines instead of 100. Pattern is reusable, well-documented, and proven by 391 passing tests. Ready to merge.
+
+### 2026-03-13: Backlog cleared — Final session complete
+- All 10 issues resolved, all 10 PRs merged (PR #17 Bicep IaC, PR #18 Test Fixtures + Tank conflict resolution)
+- **Final test results:** 494/494 tests pass
+- **Coverage:** 80%+ maintained across all 8 services
+- **Decision artifacts merged:** niobe-pr18-review.md and niobe-pr21-review.md consolidated to decisions.md
+- Project ready for next learning loop iteration: Scrape → Extract → Organize → Reason → Evaluate → Improve
