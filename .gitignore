@@ -42,3 +42,9 @@ Thumbs.db
 htmlcov/
 .pytest_cache/
 .squad/_upstream_repos/
+
+# Generated ARM JSON from az bicep build (do not commit)
+infra/*.json
+infra/modules/*.json
+!infra/abbreviations.json
+!infra/main.parameters.json

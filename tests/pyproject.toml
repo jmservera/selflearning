@@ -9,6 +9,7 @@ dependencies = [
     "httpx~=0.28.0",
     "respx~=0.22.0",
     "pydantic~=2.10.0",
+    "pydantic-settings~=2.7.0",
     "fastapi~=0.115.0",
     "uvicorn~=0.34.0",
     "beautifulsoup4~=4.12.0",

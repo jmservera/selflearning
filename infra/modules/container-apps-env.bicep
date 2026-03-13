@@ -42,3 +42,4 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01'
 
 output environmentId string = containerAppsEnvironment.id
 output environmentName string = containerAppsEnvironment.name
+output defaultDomain string = containerAppsEnvironment.properties.defaultDomain

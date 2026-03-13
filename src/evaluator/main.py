@@ -1,6 +1,7 @@
 """Evaluator service — FastAPI application."""
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -183,25 +184,24 @@ async def evaluate_topic(topic: str) -> EvaluationReport:
     # Publish to Service Bus
     if publisher:
         try:
+            # Scores in ExpertiseScorecard are 0-100; EvaluationResult expects 0.0-1.0
+            scorecard = report.scorecard
+            gap_areas = [g.area for g in report.gaps]
+            weak_areas = [
+                g.area for g in report.gaps
+                if g.severity.value in ("critical", "moderate")
+            ]
             await publisher.publish(
                 {
-                    "request_id": str(id(report)),
+                    "request_id": str(uuid.uuid4()),
                     "topic": topic,
-                    "scorecard": {
-                        "overall_score": report.scorecard.overall_score,
-                        "coverage_score": report.scorecard.coverage_score,
-                        "depth_score": report.scorecard.depth_score,
-                        "accuracy_score": report.scorecard.accuracy_score,
-                        "gap_count": report.scorecard.gap_count,
-                    },
-                    "gaps": [
-                        {
-                            "area": g.area,
-                            "severity": g.severity.value,
-                            "suggested_queries": g.suggested_queries,
-                        }
-                        for g in report.gaps
-                    ],
+                    "overall_score": round(scorecard.overall_score / 100.0, 4),
+                    "coverage_score": round(scorecard.coverage_score / 100.0, 4),
+                    "depth_score": round(scorecard.depth_score / 100.0, 4),
+                    "accuracy_score": round(scorecard.accuracy_score / 100.0, 4),
+                    "gaps": gap_areas,
+                    "weak_areas": weak_areas,
+                    "strong_areas": [],
                     "recommendations": report.recommendations,
                 }
             )
