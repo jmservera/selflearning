@@ -12,6 +12,9 @@ How to decide who handles what.
 | LLM integration | Oracle | Prompt engineering, model selection, API integration |
 | Knowledge extraction | Oracle | NLP, entity extraction, reasoning chains, embeddings |
 | Self-improvement loops | Oracle + Niobe | Improvement logic (Oracle), measurement (Niobe) |
+| Docker & containers | Dozer | Dockerfiles, ACR builds, container optimization |
+| CI/CD & pipelines | Dozer | GitHub Actions, build automation, deploy workflows |
+| Infrastructure automation | Dozer | Bicep, azd, environment provisioning |
 | APIs & endpoints | Tank | REST/GraphQL endpoints, service design, request handling |
 | Storage & knowledge graph | Tank | Database schema, graph infrastructure, caching |
 | Backend services | Tank | Service reliability, error handling, observability |
