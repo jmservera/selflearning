@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from opentelemetry import trace
 
 from .config import Settings
+from .cosmos_client import EvaluationCosmosClient
 from .evaluation import EvaluationEngine
 from .knowledge_client import KnowledgeClient
 from .models import (
@@ -23,7 +24,7 @@ from .service_bus import EvaluationPublisher
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# In-memory stores (production would use Cosmos DB)
+# In-memory fallback stores (used when COSMOS_ENDPOINT is not configured)
 _scorecard_history: dict[str, list[ExpertiseScorecard]] = {}
 _gap_store: dict[str, list[KnowledgeGap]] = {}
 _reports: dict[str, EvaluationReport] = {}
@@ -32,6 +33,7 @@ settings: Settings | None = None
 engine: EvaluationEngine | None = None
 publisher: EvaluationPublisher | None = None
 knowledge_client: KnowledgeClient | None = None
+cosmos_client: EvaluationCosmosClient | None = None
 
 
 class AzureAIClient:
@@ -76,7 +78,7 @@ class AzureAIClient:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and teardown service dependencies."""
-    global settings, engine, publisher, knowledge_client
+    global settings, engine, publisher, knowledge_client, cosmos_client
 
     settings = Settings.from_env()
 
@@ -93,6 +95,17 @@ async def lifespan(app: FastAPI):
         knowledge_client, qgen, max_questions=settings.max_questions_per_eval
     )
 
+    if settings.cosmos_endpoint:
+        cosmos_client = EvaluationCosmosClient(settings)
+        try:
+            await cosmos_client.initialize()
+            logger.info("Evaluator Cosmos DB client initialized")
+        except Exception as exc:
+            logger.warning(
+                "Cosmos DB initialization failed, falling back to in-memory: %s", exc
+            )
+            cosmos_client = None
+
     if settings.azure_servicebus_namespace:
         publisher = EvaluationPublisher(
             settings.azure_servicebus_namespace, settings.service_bus_topic
@@ -106,6 +119,8 @@ async def lifespan(app: FastAPI):
     logger.info("Evaluator service started")
     yield
 
+    if cosmos_client:
+        await cosmos_client.close()
     if knowledge_client:
         await knowledge_client.close()
     if publisher:
@@ -124,10 +139,19 @@ app = FastAPI(
 @app.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Service health check."""
+    if cosmos_client is None:
+        if settings and settings.cosmos_endpoint:
+            cosmos_status = "not_initialized"
+        else:
+            cosmos_status = "not_configured"
+    else:
+        cosmos_ok = await cosmos_client.ping()
+        cosmos_status = "ok" if cosmos_ok else "error"
     checks = {
         "engine": "ok" if engine else "not_initialized",
         "knowledge_client": "ok" if knowledge_client else "not_initialized",
         "service_bus": "ok" if publisher else "not_configured",
+        "cosmos_db": cosmos_status,
     }
     status = "healthy" if engine and knowledge_client else "degraded"
     return HealthResponse(status=status, checks=checks)
@@ -144,12 +168,17 @@ async def evaluate_topic(topic: str) -> EvaluationReport:
     with tracer.start_as_current_span("evaluate_topic", attributes={"topic": topic}):
         report = await engine.evaluate(topic)
 
-    # Store results
-    if topic not in _scorecard_history:
-        _scorecard_history[topic] = []
-    _scorecard_history[topic].append(report.scorecard)
-    _gap_store[topic] = report.gaps
-    _reports[topic] = report
+    # Store results — prefer Cosmos DB, fall back to in-memory
+    if cosmos_client is not None:
+        try:
+            await cosmos_client.upsert_scorecard(topic, report.scorecard)
+            await cosmos_client.upsert_gaps(topic, report.gaps)
+            await cosmos_client.upsert_report(topic, report)
+        except Exception as exc:
+            logger.error("Cosmos DB write failed, storing in-memory: %s", exc)
+            _store_in_memory(topic, report)
+    else:
+        _store_in_memory(topic, report)
 
     # Publish to Service Bus
     if publisher:
@@ -182,9 +211,31 @@ async def evaluate_topic(topic: str) -> EvaluationReport:
     return report
 
 
+def _store_in_memory(topic: str, report: EvaluationReport) -> None:
+    """Write evaluation results to the in-memory fallback stores."""
+    if topic not in _scorecard_history:
+        _scorecard_history[topic] = []
+    _scorecard_history[topic].append(report.scorecard)
+    _gap_store[topic] = report.gaps
+    _reports[topic] = report
+
+
 @app.get("/scorecards/{topic}", response_model=ExpertiseScorecard | None)
 async def get_scorecard(topic: str) -> ExpertiseScorecard:
     """Get the latest expertise scorecard for a topic."""
+    if cosmos_client is not None:
+        try:
+            scorecard = await cosmos_client.get_latest_scorecard(topic)
+            if scorecard is None:
+                raise HTTPException(
+                    status_code=404, detail=f"No scorecard found for topic '{topic}'"
+                )
+            return scorecard
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Cosmos DB read failed, falling back to in-memory: %s", exc)
+
     history = _scorecard_history.get(topic, [])
     if not history:
         raise HTTPException(
@@ -198,6 +249,12 @@ async def get_scorecard_history(
     topic: str, limit: int = 50
 ) -> list[ExpertiseScorecard]:
     """Get scorecard history over time for a topic."""
+    if cosmos_client is not None:
+        try:
+            return await cosmos_client.get_scorecard_history(topic, limit)
+        except Exception as exc:
+            logger.error("Cosmos DB read failed, falling back to in-memory: %s", exc)
+
     history = _scorecard_history.get(topic, [])
     return history[-limit:]
 
@@ -205,4 +262,10 @@ async def get_scorecard_history(
 @app.get("/gaps/{topic}", response_model=list[KnowledgeGap])
 async def get_gaps(topic: str) -> list[KnowledgeGap]:
     """Get current knowledge gaps for a topic."""
+    if cosmos_client is not None:
+        try:
+            return await cosmos_client.get_gaps(topic)
+        except Exception as exc:
+            logger.error("Cosmos DB read failed, falling back to in-memory: %s", exc)
+
     return _gap_store.get(topic, [])

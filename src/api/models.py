@@ -207,6 +207,24 @@ class DecisionLog(BaseModel):
     outcome: str | None = None
 
 
+# ── Simple command / health models ────────────────────────────────────────
+
+
+class HealthStatus(BaseModel):
+    """Basic service health response."""
+
+    status: str
+    service: str
+
+
+class CommandResponse(BaseModel):
+    """Response for topic command operations (learn, pause, resume, priority update)."""
+
+    status: str
+    topic_id: str = ""
+    message: str = ""
+
+
 # ── WebSocket models ───────────────────────────────────────────────────────
 
 

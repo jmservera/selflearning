@@ -613,3 +613,171 @@ class TestModels:
             SelfTestResult(
                 question_id="q1", answer="a", correct=True, confidence=1.5
             )
+
+
+# ---------------------------------------------------------------------------
+# EvaluationCosmosClient
+# ---------------------------------------------------------------------------
+class TestEvaluationCosmosClient:
+    """Unit tests for the Cosmos DB client using an in-memory container."""
+
+    @pytest_asyncio.fixture
+    async def cosmos_client(self):
+        """Return an EvaluationCosmosClient wired to an in-memory container."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from evaluator.config import Settings
+        from evaluator.cosmos_client import EvaluationCosmosClient
+
+        # Build a minimal in-memory container compatible with the client
+        store: dict[str, dict] = {}
+
+        container = MagicMock()
+
+        async def _upsert(body):
+            store[body["id"]] = body
+            return body
+
+        async def _read_item(item, partition_key):
+            from azure.cosmos.exceptions import CosmosResourceNotFoundError
+            if item not in store:
+                raise CosmosResourceNotFoundError(message=f"{item} not found", response=MagicMock(status_code=404, headers={}))
+            return store[item]
+
+        async def _read():
+            return {}
+
+        container.upsert_item = AsyncMock(side_effect=_upsert)
+        container.read_item = AsyncMock(side_effect=_read_item)
+        container.read = AsyncMock(side_effect=_read)
+
+        async def _query_items_async(query, parameters, **kwargs):
+            for doc in list(store.values()):
+                yield doc
+
+        container.query_items = MagicMock(side_effect=lambda query, parameters, **kw: _query_items_async(query, parameters, **kw))
+
+        settings = Settings(cosmos_endpoint="https://mock.cosmos", cosmos_database="selflearning", cosmos_container="evaluations")
+        client = EvaluationCosmosClient(settings)
+        client._container = container
+        return client
+
+    def _make_scorecard(self, topic: str = "ml") -> "ExpertiseScorecard":
+        return ExpertiseScorecard(
+            topic=topic,
+            overall_score=75.0,
+            coverage_score=80.0,
+            depth_score=70.0,
+            accuracy_score=75.0,
+            recency_score=70.0,
+        )
+
+    def _make_gap(self, topic: str = "ml") -> "KnowledgeGap":
+        return KnowledgeGap(
+            topic=topic,
+            area="core_concepts",
+            severity=GapSeverity.MODERATE,
+            description="Missing fundamentals",
+            suggested_queries=["intro to ml"],
+        )
+
+    def _make_report(self, topic: str = "ml") -> "EvaluationReport":
+        sc = self._make_scorecard(topic)
+        gap = self._make_gap(topic)
+        return EvaluationReport(topic=topic, scorecard=sc, gaps=[gap])
+
+    @pytest.mark.asyncio
+    async def test_upsert_and_get_latest_scorecard(self, cosmos_client):
+        sc = self._make_scorecard()
+        await cosmos_client.upsert_scorecard("ml", sc)
+        result = await cosmos_client.get_latest_scorecard("ml")
+        assert result is not None
+        assert result.topic == "ml"
+        assert result.overall_score == 75.0
+
+    @pytest.mark.asyncio
+    async def test_get_latest_scorecard_missing(self, cosmos_client):
+        # No scorecard stored → should return None
+        from unittest.mock import MagicMock
+
+        async def _empty_gen(*a, **kw):
+            for _ in []:
+                yield _
+
+        cosmos_client.container.query_items = MagicMock(
+            side_effect=lambda *a, **kw: _empty_gen(*a, **kw)
+        )
+        result = await cosmos_client.get_latest_scorecard("unknown")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_upsert_and_get_gaps(self, cosmos_client):
+        gap = self._make_gap()
+        await cosmos_client.upsert_gaps("ml", [gap])
+        gaps = await cosmos_client.get_gaps("ml")
+        assert len(gaps) == 1
+        assert gaps[0].area == "core_concepts"
+        assert gaps[0].severity == GapSeverity.MODERATE
+
+    @pytest.mark.asyncio
+    async def test_get_gaps_missing_topic(self, cosmos_client):
+        gaps = await cosmos_client.get_gaps("no_such_topic")
+        assert gaps == []
+
+    @pytest.mark.asyncio
+    async def test_upsert_and_get_report(self, cosmos_client):
+        report = self._make_report()
+        await cosmos_client.upsert_report("ml", report)
+        result = await cosmos_client.get_report("ml")
+        assert result is not None
+        assert result.topic == "ml"
+        assert len(result.gaps) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_report_missing_topic(self, cosmos_client):
+        result = await cosmos_client.get_report("no_such_topic")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ping_returns_true_on_success(self, cosmos_client):
+        result = await cosmos_client.ping()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_ping_returns_false_on_error(self, cosmos_client):
+        from unittest.mock import AsyncMock
+        cosmos_client.container.read = AsyncMock(side_effect=Exception("unreachable"))
+        result = await cosmos_client.ping()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_upsert_scorecard_sets_type(self, cosmos_client):
+        sc = self._make_scorecard()
+        await cosmos_client.upsert_scorecard("ml", sc)
+        stored = list(cosmos_client.container.upsert_item.call_args_list)
+        assert len(stored) == 1
+        body = stored[0].kwargs.get("body") or stored[0].args[0]
+        assert body["type"] == "scorecard"
+        assert body["topic"] == "ml"
+
+    @pytest.mark.asyncio
+    async def test_upsert_gaps_overwrites_previous(self, cosmos_client):
+        gap1 = self._make_gap()
+        gap2 = KnowledgeGap(
+            topic="ml", area="history", severity=GapSeverity.CRITICAL,
+            description="History missing", suggested_queries=["ml history"]
+        )
+        await cosmos_client.upsert_gaps("ml", [gap1])
+        await cosmos_client.upsert_gaps("ml", [gap2])
+        # Last write wins because id is deterministic ("gaps-ml")
+        gaps = await cosmos_client.get_gaps("ml")
+        assert len(gaps) == 1
+        assert gaps[0].area == "history"
+
+    @pytest.mark.asyncio
+    async def test_get_scorecard_history_returns_list(self, cosmos_client):
+        sc = self._make_scorecard()
+        await cosmos_client.upsert_scorecard("ml", sc)
+        history = await cosmos_client.get_scorecard_history("ml", limit=10)
+        assert isinstance(history, list)
+        assert len(history) >= 1

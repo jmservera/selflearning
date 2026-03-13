@@ -66,6 +66,40 @@ class HealthResponse(BaseModel):
     services: dict[str, str] = Field(default_factory=dict)
 
 
+class DashboardStatus(BaseModel):
+    current_activity: str = "idle"
+    active_topics: int = 0
+    total_entities: int = 0
+    total_claims: int = 0
+    active_learning_cycles: int = 0
+    system_health: str = "healthy"
+
+
+class LearningProgress(BaseModel):
+    overall_expertise: float = 0.0
+    total_entities: int = 0
+    total_claims: int = 0
+    total_sources: int = 0
+    learning_rate: float = 0.0
+
+
+class ActivityLog(BaseModel):
+    id: str
+    service: str = ""
+    action: str = ""
+    details: str = ""
+    topic: str | None = None
+    success: bool = True
+
+
+class DecisionLog(BaseModel):
+    id: str
+    decision: str = ""
+    reasoning: str = ""
+    topic: str | None = None
+    outcome: str | None = None
+
+
 # ============================================================================
 # Mock API app — implements expected endpoint contracts
 # ============================================================================
@@ -170,6 +204,76 @@ async def service_health() -> dict:
         "evaluator": {"status": "healthy", "latency_ms": 8},
         "scraper": {"status": "degraded", "latency_ms": 150},
     }
+
+
+@mock_api.get("/dashboard/status", response_model=DashboardStatus)
+async def dashboard_status() -> DashboardStatus:
+    return DashboardStatus(
+        current_activity="learning",
+        active_topics=3,
+        total_entities=150,
+        total_claims=45,
+        active_learning_cycles=1,
+        system_health="healthy",
+    )
+
+
+@mock_api.get("/dashboard/progress", response_model=LearningProgress)
+async def dashboard_progress() -> LearningProgress:
+    return LearningProgress(
+        overall_expertise=0.65,
+        total_entities=150,
+        total_claims=45,
+        total_sources=20,
+        learning_rate=5.2,
+    )
+
+
+@mock_api.get("/dashboard/logs", response_model=list[ActivityLog])
+async def dashboard_logs() -> list[ActivityLog]:
+    return [
+        ActivityLog(id="l1", service="scraper", action="scrape", details="Scraped 5 pages"),
+        ActivityLog(id="l2", service="extractor", action="extract", details="Extracted 10 entities"),
+    ]
+
+
+@mock_api.get("/dashboard/decisions", response_model=list[DecisionLog])
+async def dashboard_decisions() -> list[DecisionLog]:
+    return [
+        DecisionLog(id="d1", decision="Focus on neural networks", reasoning="High relevance"),
+        DecisionLog(
+            id="d2",
+            decision="Skip low-quality content",
+            reasoning="Low confidence score",
+            outcome="filtered",
+        ),
+    ]
+
+
+@mock_api.websocket("/ws/status")
+async def websocket_status(websocket: WebSocket):
+    await websocket.accept()
+    await websocket.send_json({"type": "connected", "data": {"channel": "status", "message": "Connected to status stream"}})
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_json({"type": "pong", "data": {}})
+    except WebSocketDisconnect:
+        pass
+
+
+@mock_api.websocket("/ws/logs")
+async def websocket_logs(websocket: WebSocket):
+    await websocket.accept()
+    await websocket.send_json({"type": "connected", "data": {"channel": "logs", "message": "Connected to log stream"}})
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_json({"type": "pong", "data": {}})
+    except WebSocketDisconnect:
+        pass
 
 
 @mock_api.websocket("/ws/updates")
@@ -389,7 +493,31 @@ class TestHealthEndpoints:
             assert "latency_ms" in service_info
 
 
-class TestWebSocket:
+class TestOpenAPIDocumentation:
+    """Test that Swagger UI and ReDoc documentation endpoints are available."""
+
+    @pytest.mark.asyncio
+    async def test_swagger_ui_loads(self, api_client):
+        resp = await api_client.get("/docs")
+        assert resp.status_code == 200
+        assert "swagger" in resp.text.lower() or "openapi" in resp.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_redoc_loads(self, api_client):
+        resp = await api_client.get("/redoc")
+        assert resp.status_code == 200
+        assert "redoc" in resp.text.lower() or "openapi" in resp.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_openapi_json_schema(self, api_client):
+        resp = await api_client.get("/openapi.json")
+        assert resp.status_code == 200
+        schema = resp.json()
+        assert schema["info"]["title"] == "API Gateway (Test Contract)"
+        assert "paths" in schema
+
+
+
     """Test WebSocket connection for real-time updates."""
 
     @pytest.mark.asyncio
@@ -403,3 +531,130 @@ class TestWebSocket:
             await ws.send_text("ping")
             response = await ws.receive_text()
             assert response == "update: ping"
+
+
+class TestDashboardEndpoints:
+    """Test dashboard endpoints for system status and progress data."""
+
+    @pytest.mark.asyncio
+    async def test_dashboard_status_returns_200(self, api_client):
+        resp = await api_client.get("/dashboard/status")
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_dashboard_status_schema(self, api_client):
+        resp = await api_client.get("/dashboard/status")
+        data = resp.json()
+        assert "current_activity" in data
+        assert "active_topics" in data
+        assert "total_entities" in data
+        assert "system_health" in data
+
+    @pytest.mark.asyncio
+    async def test_dashboard_status_health_value(self, api_client):
+        resp = await api_client.get("/dashboard/status")
+        data = resp.json()
+        assert data["system_health"] in ("healthy", "degraded", "unknown")
+
+    @pytest.mark.asyncio
+    async def test_dashboard_progress_returns_200(self, api_client):
+        resp = await api_client.get("/dashboard/progress")
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_dashboard_progress_schema(self, api_client):
+        resp = await api_client.get("/dashboard/progress")
+        data = resp.json()
+        assert "overall_expertise" in data
+        assert "total_entities" in data
+        assert "total_claims" in data
+        assert "learning_rate" in data
+
+    @pytest.mark.asyncio
+    async def test_dashboard_progress_expertise_in_range(self, api_client):
+        resp = await api_client.get("/dashboard/progress")
+        data = resp.json()
+        assert 0.0 <= data["overall_expertise"] <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_dashboard_logs_returns_200(self, api_client):
+        resp = await api_client.get("/dashboard/logs")
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_dashboard_logs_returns_list(self, api_client):
+        resp = await api_client.get("/dashboard/logs")
+        logs = resp.json()
+        assert isinstance(logs, list)
+        assert len(logs) > 0
+
+    @pytest.mark.asyncio
+    async def test_dashboard_logs_entry_schema(self, api_client):
+        resp = await api_client.get("/dashboard/logs")
+        entry = resp.json()[0]
+        assert "id" in entry
+        assert "service" in entry
+        assert "action" in entry
+        assert "success" in entry
+
+    @pytest.mark.asyncio
+    async def test_dashboard_decisions_returns_200(self, api_client):
+        resp = await api_client.get("/dashboard/decisions")
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_dashboard_decisions_returns_list(self, api_client):
+        resp = await api_client.get("/dashboard/decisions")
+        decisions = resp.json()
+        assert isinstance(decisions, list)
+        assert len(decisions) > 0
+
+    @pytest.mark.asyncio
+    async def test_dashboard_decisions_entry_schema(self, api_client):
+        resp = await api_client.get("/dashboard/decisions")
+        entry = resp.json()[0]
+        assert "id" in entry
+        assert "decision" in entry
+        assert "reasoning" in entry
+
+
+class TestWebSocketEndpoints:
+    """Test WebSocket endpoints for real-time status and log streaming."""
+
+    def test_ws_status_connect_and_initial_message(self):
+        from starlette.testclient import TestClient
+
+        with TestClient(mock_api) as client:
+            with client.websocket_connect("/ws/status") as ws:
+                msg = ws.receive_json()
+                assert msg["type"] == "connected"
+                assert msg["data"]["channel"] == "status"
+
+    def test_ws_status_ping_pong(self):
+        from starlette.testclient import TestClient
+
+        with TestClient(mock_api) as client:
+            with client.websocket_connect("/ws/status") as ws:
+                ws.receive_json()  # consume "connected" message
+                ws.send_text("ping")
+                response = ws.receive_json()
+                assert response["type"] == "pong"
+
+    def test_ws_logs_connect_and_initial_message(self):
+        from starlette.testclient import TestClient
+
+        with TestClient(mock_api) as client:
+            with client.websocket_connect("/ws/logs") as ws:
+                msg = ws.receive_json()
+                assert msg["type"] == "connected"
+                assert msg["data"]["channel"] == "logs"
+
+    def test_ws_logs_ping_pong(self):
+        from starlette.testclient import TestClient
+
+        with TestClient(mock_api) as client:
+            with client.websocket_connect("/ws/logs") as ws:
+                ws.receive_json()  # consume "connected" message
+                ws.send_text("ping")
+                response = ws.receive_json()
+                assert response["type"] == "pong"

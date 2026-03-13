@@ -49,3 +49,25 @@
 - **PR #21 (Scraper/Extractor endpoint tests):** Added 5 tests for Scraper endpoints (/health, /status with degraded states) and 4 tests for Extractor endpoints (/health, /status with component health). Total: 71/71 tests passing (36 existing + 35 new). Comprehensive coverage of graceful degradation behavior for blob storage, Cosmos DB, Service Bus, LLM client, and extraction pipeline. Follows established pattern from test_knowledge.py. Both services now have production-quality endpoint testing. **APPROVED & MERGED.** Issue #3 closed.
 - **Test impact:** 2 new test suites with comprehensive endpoint coverage. Pattern established: every service should validate /health and /status endpoints with full component state testing. Integration tests enable confidence in local development pipeline.
 - **Learning:** Endpoint testing is not optional. /health and /status must cover all critical dependencies and report degraded states accurately. This enables external monitoring and load balancer circuit breaking.
+### 2026-03-13: PR reviews round 2 (PRs #13-16)
+- **PR #13 (Reasoner HTTP endpoints):** APPROVED by Ralph. Niobe completed 382 tests, 1 skipped. Added HTTP endpoints for direct reasoning invocation and result retrieval (GET /status, POST /reason, GET /results/{id}). In-memory FIFO cache (100 entries). Pattern established for future services.
+- **PR #14 (API Gateway tests):** APPROVED by Ralph. Niobe completed 35 tests with 100% endpoint coverage. Ready for production deployment.
+- **PR #15 (Cosmos DB migration):** APPROVED by Ralph. Morpheus reviewed graceful fallback pattern — in-memory stores as safety net during external persistence failures. Zero-downtime migration, development ergonomics, production safety. Pattern documented for future migrations.
+- **PR #16 (Docker compose):** BLOCKED by emulator authentication issue. Tank identified missing conditional auth pattern — services default to managed identity (production) but emulators require account key authentication. Affects Knowledge, Scraper, Orchestrator, Extractor services. Solution pattern documented, awaiting implementation fixes from Trinity/Oracle/Morpheus.
+- **Impact:** 3 PRs merged (closing issues #4, #5, #6). 3 new patterns established in decisions.md. 1 high-priority blocker identified for local development.
+
+
+### 2026-03-13: PR #21 Review — Scraper and Extractor Endpoint Tests
+- Reviewed and approved PR #21 by @copilot coding agent: added FastAPI endpoint tests for Scraper and Extractor services (closes issue #3)
+- **Test results:** 71/71 tests pass (36 existing + 9 new endpoint tests: 5 scraper, 4 extractor)
+- **Coverage added:**
+  - Scraper: 5 tests for /health and /status endpoints (healthy state, degraded blob/cosmos, degraded service bus, consumer/publisher stats)
+  - Extractor: 4 tests for /health and /status endpoints (healthy state, degraded llm/blob, degraded service_bus/pipeline)
+- **Code quality observations:**
+  - Follows established patterns from test_knowledge.py (AsyncClient + ASGITransport, module-level singleton mocking, _setup_service_path)
+  - Degraded state testing covers all critical components (blob storage, cosmos DB, service bus, LLM client, extraction pipeline)
+  - Status endpoint implementation added to src/extractor/main.py (+21 lines, -1): version, started_at, components health, consumer_running flag
+  - Scraper tests validate crawl_history stats integration via mock_history.get_crawl_stats()
+  - Extractor tests validate all 4 component states (llm_client, blob_storage, service_bus, pipeline)
+- **No gaps identified:** Both services now have comprehensive endpoint coverage matching Knowledge service test quality
+- **Decision:** Marked PR ready and approved. Tests demonstrate correct graceful degradation behavior for all Azure service dependencies.

@@ -7,14 +7,20 @@ to reference the actual service modules.
 """
 
 import asyncio
+import os
+import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import urlparse
 
 import pytest
+import pytest_asyncio
 from bs4 import BeautifulSoup
+from httpx import ASGITransport, AsyncClient
 
 
 # ============================================================================
@@ -462,3 +468,131 @@ class TestServiceBusMessage:
         )
         d = msg.to_dict()
         assert all(k in d for k in ["request_id", "url", "topic", "status"])
+
+
+# ============================================================================
+# FastAPI endpoint tests
+# ============================================================================
+
+_SCRAPER_BARE_MODULES = frozenset({
+    "main", "config", "models", "scraper", "service_bus", "storage",
+})
+
+
+def _setup_scraper_path() -> None:
+    """Flush stale bare-module caches and put src/scraper/ first on sys.path.
+
+    src/scraper/ must come BEFORE src/ so that ``import scraper`` inside
+    main.py resolves to scraper.py (the WebScraper module) rather than the
+    src/scraper/ package directory.  Other service directories are removed
+    to prevent cross-contamination when running the full test suite.
+    """
+    src_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "src"))
+    svc_dir = os.path.normpath(os.path.join(src_dir, "scraper"))
+    # Remove all service directories to avoid cross-contamination
+    other_svcs = {os.path.normpath(os.path.join(src_dir, s))
+                  for s in ("extractor", "orchestrator", "healer", "reasoner")}
+    for name in _SCRAPER_BARE_MODULES:
+        sys.modules.pop(name, None)
+    sys.path[:] = [p for p in sys.path
+                   if os.path.normpath(p) not in other_svcs
+                   and os.path.normpath(p) != svc_dir]
+    # Insert BEFORE src/ so bare `import scraper` finds scraper.py, not the package
+    src_positions = [i for i, p in enumerate(sys.path) if os.path.normpath(p) == src_dir]
+    insert_pos = src_positions[0] if src_positions else 0
+    sys.path.insert(insert_pos, svc_dir)
+
+
+class TestEndpoints:
+    """Tests for scraper FastAPI endpoints (/health, /status)."""
+
+    @pytest_asyncio.fixture
+    async def client(self):
+        """Create test client with mocked module-level globals."""
+        saved_path = sys.path[:]
+        _setup_scraper_path()
+        import main as scraper_mod  # noqa: PLC0415
+
+        mock_blob = MagicMock()
+        mock_history = MagicMock()
+        mock_history.get_crawl_stats = AsyncMock(return_value={"total": 10, "failed": 1})
+        mock_consumer = MagicMock()
+        mock_consumer.stats = {"messages_processed": 5}
+        mock_publisher = MagicMock()
+        mock_publisher.stats = {"messages_published": 3}
+
+        scraper_mod._blob_client = mock_blob
+        scraper_mod._history_client = mock_history
+        scraper_mod._consumer = mock_consumer
+        scraper_mod._publisher = mock_publisher
+        scraper_mod._started_at = datetime.now(timezone.utc)
+
+        transport = ASGITransport(app=scraper_mod.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c, scraper_mod, mock_blob, mock_history, mock_consumer, mock_publisher
+
+        scraper_mod._blob_client = None
+        scraper_mod._history_client = None
+        scraper_mod._consumer = None
+        scraper_mod._publisher = None
+        scraper_mod._started_at = None
+        for name in _SCRAPER_BARE_MODULES:
+            sys.modules.pop(name, None)
+        sys.path[:] = saved_path
+
+    @pytest.mark.asyncio
+    async def test_health_check(self, client):
+        c, _, _, _, _, _ = client
+        resp = await c.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "healthy"
+        assert data["service"] == "scraper"
+
+    @pytest.mark.asyncio
+    async def test_status_healthy(self, client):
+        c, _, _, mock_history, _, _ = client
+        mock_history.get_crawl_stats.return_value = {"total": 42, "failed": 0}
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["service"] == "scraper"
+        assert data["components"]["blob_storage"] == "connected"
+        assert data["components"]["cosmos_db"] == "connected"
+        assert data["components"]["service_bus_consumer"] == "running"
+        assert data["components"]["service_bus_publisher"] == "connected"
+        assert data["started_at"] is not None
+        assert data["crawl_history"] == {"total": 42, "failed": 0}
+
+    @pytest.mark.asyncio
+    async def test_status_includes_consumer_and_publisher_stats(self, client):
+        c, _, _, _, mock_consumer, mock_publisher = client
+        mock_consumer.stats = {"messages_processed": 7}
+        mock_publisher.stats = {"messages_published": 5}
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["consumer"] == {"messages_processed": 7}
+        assert data["publisher"] == {"messages_published": 5}
+
+    @pytest.mark.asyncio
+    async def test_status_degraded_blob_and_cosmos(self, client):
+        c, scraper_mod, _, _, _, _ = client
+        scraper_mod._blob_client = None
+        scraper_mod._history_client = None
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["components"]["blob_storage"] == "not_initialized"
+        assert data["components"]["cosmos_db"] == "not_initialized"
+
+    @pytest.mark.asyncio
+    async def test_status_degraded_service_bus(self, client):
+        c, scraper_mod, _, _, _, _ = client
+        scraper_mod._consumer = None
+        scraper_mod._publisher = None
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["components"]["service_bus_consumer"] == "not_initialized"
+        assert data["components"]["service_bus_publisher"] == "not_initialized"

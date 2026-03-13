@@ -1,0 +1,372 @@
+# docker-compose.yml — Local development environment
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env with your Azure credentials (Service Bus, AI endpoints)
+#   docker compose up --build
+#
+# Emulated locally:  Azure Cosmos DB, Azure Blob Storage (Azurite)
+# Requires Azure:    Azure Service Bus, Azure AI Foundry, Azure AI Search
+#
+# Service endpoints when running:
+#   UI:           http://localhost:5173
+#   API:          http://localhost:8000
+#   Knowledge:    http://localhost:8004
+#   Evaluator:    http://localhost:8006
+#   Orchestrator: http://localhost:8007
+#   Healer:       http://localhost:8008
+#   Scraper:      http://localhost:8001
+#   Extractor:    http://localhost:8002
+#   Reasoner:     http://localhost:8003
+#   Cosmos DB:    https://localhost:8081
+#   Azurite Blob: http://localhost:10000
+
+networks:
+  selflearning:
+    driver: bridge
+
+volumes:
+  cosmos-data:
+  azurite-data:
+
+services:
+
+  # ─── Infrastructure Emulators ─────────────────────────────────────────────────
+
+  cosmos:
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator
+    container_name: cosmos-emulator
+    networks:
+      - selflearning
+    ports:
+      - "8081:8081"
+    environment:
+      AZURE_COSMOS_EMULATOR_PARTITION_COUNT: "10"
+      AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE: "true"
+    volumes:
+      - cosmos-data:/tmp/cosmos/appdata
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k -sf https://localhost:8081/_explorer/emulator.pem > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 15
+      start_period: 90s
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    container_name: azurite
+    networks:
+      - selflearning
+    ports:
+      - "10000:10000"   # Blob Storage
+      - "10001:10001"   # Queue Storage
+      - "10002:10002"   # Table Storage
+    command: >
+      azurite
+      --blobHost 0.0.0.0
+      --queueHost 0.0.0.0
+      --tableHost 0.0.0.0
+      --loose
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 10000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ─── Application Services ─────────────────────────────────────────────────────
+
+  knowledge:
+    build:
+      context: src/knowledge
+      dockerfile: Dockerfile
+    container_name: knowledge
+    networks:
+      - selflearning
+    ports:
+      - "8004:8000"
+    environment:
+      AZURE_COSMOS_ENDPOINT: https://cosmos:8081
+      COSMOS_DATABASE_NAME: ${COSMOS_DATABASE_NAME:-selflearning}
+      COSMOS_CONTAINER_NAME: ${COSMOS_CONTAINER_NAME:-knowledge}
+      AZURE_SEARCH_ENDPOINT: ${AZURE_SEARCH_ENDPOINT:-}
+      SEARCH_INDEX_PREFIX: ${AZURE_SEARCH_INDEX_PREFIX:-selflearning}
+      AZURE_SERVICEBUS_NAMESPACE: ${AZURE_SERVICEBUS_NAMESPACE:-}
+      AZURE_AI_FOUNDRY_ENDPOINT: ${AZURE_AI_FOUNDRY_ENDPOINT:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-large}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      cosmos:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  api:
+    build:
+      context: src/api
+      dockerfile: Dockerfile
+    container_name: api
+    networks:
+      - selflearning
+    ports:
+      - "8000:8000"
+    environment:
+      KNOWLEDGE_SERVICE_URL: http://knowledge:8000
+      ORCHESTRATOR_SERVICE_URL: http://orchestrator:8000
+      EVALUATOR_SERVICE_URL: http://evaluator:8000
+      HEALER_SERVICE_URL: http://healer:8000
+      SCRAPER_SERVICE_URL: http://scraper:8000
+      EXTRACTOR_SERVICE_URL: http://extractor:8000
+      REASONER_SERVICE_URL: http://reasoner:8000
+      AZURE_SERVICEBUS_NAMESPACE: ${AZURE_SERVICEBUS_NAMESPACE:-}
+      AZURE_AI_FOUNDRY_ENDPOINT: ${AZURE_AI_FOUNDRY_ENDPOINT:-}
+      CHAT_MODEL: ${CHAT_MODEL:-gpt-4o}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-large}
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      knowledge:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  scraper:
+    build:
+      context: src/scraper
+      dockerfile: Dockerfile
+    container_name: scraper
+    networks:
+      - selflearning
+    ports:
+      - "8001:8000"
+    environment:
+      SCRAPER_SERVICEBUS_NAMESPACE: ${AZURE_SERVICEBUS_NAMESPACE:-}
+      SCRAPER_SERVICEBUS_QUEUE_NAME: ${SCRAPER_SERVICEBUS_QUEUE_NAME:-scrape-requests}
+      SCRAPER_SERVICEBUS_TOPIC_NAME: ${SCRAPER_SERVICEBUS_TOPIC_NAME:-scrape-complete}
+      SCRAPER_BLOB_ACCOUNT_URL: ${AZURITE_BLOB_URL:-http://azurite:10000/devstoreaccount1}
+      SCRAPER_BLOB_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER:-raw-content}
+      SCRAPER_COSMOS_ENDPOINT: https://cosmos:8081
+      SCRAPER_COSMOS_DATABASE_NAME: ${COSMOS_DATABASE_NAME:-selflearning}
+      SCRAPER_COSMOS_CONTAINER_NAME: ${SCRAPER_COSMOS_CONTAINER_NAME:-crawl-history}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      SCRAPER_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      cosmos:
+        condition: service_healthy
+      azurite:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  extractor:
+    build:
+      context: src/extractor
+      dockerfile: Dockerfile
+    container_name: extractor
+    networks:
+      - selflearning
+    ports:
+      - "8002:8000"
+    environment:
+      AZURE_AI_ENDPOINT: ${AZURE_AI_FOUNDRY_ENDPOINT:-}
+      EXTRACTION_MODEL: ${EXTRACTION_MODEL:-gpt-4o-mini}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-large}
+      SERVICEBUS_NAMESPACE: ${AZURE_SERVICEBUS_NAMESPACE:-}
+      SCRAPE_COMPLETE_TOPIC: ${SCRAPE_COMPLETE_TOPIC:-scrape-complete}
+      SCRAPE_COMPLETE_SUBSCRIPTION: ${SCRAPE_COMPLETE_SUBSCRIPTION:-extractor}
+      EXTRACTION_COMPLETE_TOPIC: ${EXTRACTION_COMPLETE_TOPIC:-extraction-complete}
+      STORAGE_ACCOUNT_URL: ${AZURITE_BLOB_URL:-http://azurite:10000/devstoreaccount1}
+      RAW_CONTENT_CONTAINER: ${AZURE_STORAGE_CONTAINER:-raw-content}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      azurite:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  reasoner:
+    build:
+      context: src/reasoner
+      dockerfile: Dockerfile
+    container_name: reasoner
+    networks:
+      - selflearning
+    ports:
+      - "8003:8000"
+    environment:
+      AZURE_AI_ENDPOINT: ${AZURE_AI_FOUNDRY_ENDPOINT:-}
+      REASONING_MODEL: ${REASONING_MODEL:-gpt-4o}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-large}
+      KNOWLEDGE_SERVICE_URL: http://knowledge:8000
+      SERVICEBUS_NAMESPACE: ${AZURE_SERVICEBUS_NAMESPACE:-}
+      REASONING_REQUESTS_QUEUE: ${REASONING_REQUESTS_QUEUE:-reasoning-requests}
+      REASONING_COMPLETE_TOPIC: ${REASONING_COMPLETE_TOPIC:-reasoning-complete}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      knowledge:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  evaluator:
+    build:
+      context: src/evaluator
+      dockerfile: Dockerfile
+    container_name: evaluator
+    networks:
+      - selflearning
+    ports:
+      - "8006:8000"
+    environment:
+      AZURE_AI_FOUNDRY_ENDPOINT: ${AZURE_AI_FOUNDRY_ENDPOINT:-}
+      AZURE_SERVICEBUS_NAMESPACE: ${AZURE_SERVICEBUS_NAMESPACE:-}
+      KNOWLEDGE_SERVICE_URL: http://knowledge:8000
+      EVALUATION_MODEL: ${EVALUATION_MODEL:-gpt-4o}
+      QUESTION_MODEL: ${QUESTION_MODEL:-gpt-4o-mini}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      knowledge:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  orchestrator:
+    build:
+      context: src/orchestrator
+      dockerfile: Dockerfile
+    container_name: orchestrator
+    networks:
+      - selflearning
+    ports:
+      - "8007:8000"
+    environment:
+      ORCHESTRATOR_SERVICEBUS_NAMESPACE: ${AZURE_SERVICEBUS_NAMESPACE:-}
+      ORCHESTRATOR_SCRAPE_REQUESTS_QUEUE: ${SCRAPER_SERVICEBUS_QUEUE_NAME:-scrape-requests}
+      ORCHESTRATOR_REASONING_REQUESTS_QUEUE: ${REASONING_REQUESTS_QUEUE:-reasoning-requests}
+      ORCHESTRATOR_SCRAPE_COMPLETE_TOPIC: ${SCRAPE_COMPLETE_TOPIC:-scrape-complete}
+      ORCHESTRATOR_EXTRACTION_COMPLETE_TOPIC: ${EXTRACTION_COMPLETE_TOPIC:-extraction-complete}
+      ORCHESTRATOR_REASONING_COMPLETE_TOPIC: ${REASONING_COMPLETE_TOPIC:-reasoning-complete}
+      ORCHESTRATOR_EVALUATION_COMPLETE_TOPIC: ${EVALUATION_COMPLETE_TOPIC:-evaluation-complete}
+      ORCHESTRATOR_SUBSCRIPTION_NAME: ${ORCHESTRATOR_SUBSCRIPTION_NAME:-orchestrator}
+      ORCHESTRATOR_COSMOS_ENDPOINT: https://cosmos:8081
+      ORCHESTRATOR_COSMOS_DATABASE: ${COSMOS_DATABASE_NAME:-selflearning}
+      ORCHESTRATOR_AI_FOUNDRY_ENDPOINT: ${AZURE_AI_FOUNDRY_ENDPOINT:-}
+      ORCHESTRATOR_AI_FOUNDRY_MODEL: ${CHAT_MODEL:-gpt-4o}
+      ORCHESTRATOR_AI_FOUNDRY_MINI_MODEL: ${QUESTION_MODEL:-gpt-4o-mini}
+      ORCHESTRATOR_SCRAPER_URL: http://scraper:8000
+      ORCHESTRATOR_EXTRACTOR_URL: http://extractor:8000
+      ORCHESTRATOR_KNOWLEDGE_URL: http://knowledge:8000
+      ORCHESTRATOR_REASONER_URL: http://reasoner:8000
+      ORCHESTRATOR_EVALUATOR_URL: http://evaluator:8000
+      ORCHESTRATOR_HEALER_URL: http://healer:8000
+      ORCHESTRATOR_API_URL: http://api:8000
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      ORCHESTRATOR_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      cosmos:
+        condition: service_healthy
+      knowledge:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  healer:
+    build:
+      context: src/healer
+      dockerfile: Dockerfile
+    container_name: healer
+    networks:
+      - selflearning
+    ports:
+      - "8008:8000"
+    environment:
+      HEALER_SERVICEBUS_NAMESPACE: ${AZURE_SERVICEBUS_NAMESPACE:-}
+      HEALER_SCRAPER_URL: http://scraper:8000
+      HEALER_EXTRACTOR_URL: http://extractor:8000
+      HEALER_KNOWLEDGE_URL: http://knowledge:8000
+      HEALER_REASONER_URL: http://reasoner:8000
+      HEALER_EVALUATOR_URL: http://evaluator:8000
+      HEALER_ORCHESTRATOR_URL: http://orchestrator:8000
+      HEALER_API_URL: http://api:8000
+      HEALER_AI_FOUNDRY_ENDPOINT: ${AZURE_AI_FOUNDRY_ENDPOINT:-}
+      HEALER_AI_FOUNDRY_MODEL: ${QUESTION_MODEL:-gpt-4o-mini}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
+      HEALER_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      api:
+        condition: service_healthy
+      scraper:
+        condition: service_healthy
+      extractor:
+        condition: service_healthy
+      knowledge:
+        condition: service_healthy
+      reasoner:
+        condition: service_healthy
+      evaluator:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  ui:
+    build:
+      context: src/ui
+      dockerfile: Dockerfile
+    container_name: ui
+    networks:
+      - selflearning
+    ports:
+      - "5173:80"
+    environment:
+      # Nginx uses this to proxy /api/* and /ws/* requests to the API service
+      API_GATEWAY_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s

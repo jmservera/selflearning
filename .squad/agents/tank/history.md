@@ -98,3 +98,9 @@
 - **PR #19 (API Gateway Swagger UI):** Reviewed and approved. Added complete OpenAPI metadata to API Gateway: title, description, version, contact info, openapi_tags. All 19 endpoints now have tags, response_model, and docstrings. Swagger UI + ReDoc fully functional. Decision documented: "API Gateway OpenAPI Documentation Standards" — all future FastAPI services must follow this pattern (tags, response_model, docstrings on every endpoint). **APPROVED & MERGED.** Issue #10 closed.
 - **Impact on code:** API Gateway now has complete auto-generated docs and discoverable endpoints. Decision pattern applies to Scraper, Extractor, Knowledge, Reasoner, Evaluator, Orchestrator, Healer — all should follow for consistency.
 - **Learning:** OpenAPI metadata is not optional. It's part of the contract. Frontend devs and external API consumers depend on it.
+  - **Solution documented:** Conditional auth pattern — detect emulator endpoints, use well-known keys; otherwise use DefaultAzureCredential
+  - **Implementation required:** Cosmos DB (localhost:8081, cosmos:8081) and Azurite (localhost:10000, devstoreaccount1) conditional auth in storage modules
+  - **Team assignments:** Trinity (Scraper auth fix), Oracle (Extractor auth fix), Morpheus (Orchestrator auth fix)
+  - **Blocker severity:** HIGH — prevents local testing of full pipeline until resolved
+- **Decisions merged:** 3 new patterns to .squad/decisions.md (Graceful Fallback, Reasoner HTTP Endpoints, Emulator Authentication)
+- **Next:** Re-review PR #16 after auth fixes implemented and verified
