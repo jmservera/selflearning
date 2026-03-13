@@ -43,3 +43,6 @@ jobs:
           npm ci --prefix src/ui
           npm run lint --prefix src/ui
           npm run build --prefix src/ui
+
+      - name: Run tests
+        run: npm test --prefix src/ui
