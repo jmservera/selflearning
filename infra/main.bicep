@@ -13,6 +13,9 @@ param location string
 param deployGptModel bool = true
 param deployEmbeddingModel bool = true
 
+@description('Use a placeholder public image for the very first azd provision before any images are pushed to ACR. Set to true on first deployment; leave false for steady-state re-provisions.')
+param useDefaultImage bool = false
+
 // Generate resource name prefix
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
@@ -190,6 +193,7 @@ module containerApps 'modules/container-app.bicep' = [
       identityClientId: identity.outputs.identityClientId
       external: service.external
       env: backendEnv
+      useDefaultImage: useDefaultImage
     }
   }
 ]
@@ -211,6 +215,7 @@ module uiContainerApp 'modules/container-app.bicep' = {
     env: [
       { name: 'API_GATEWAY_URL', value: 'https://${containerApps[7].outputs.fqdn}' }
     ]
+    useDefaultImage: useDefaultImage
   }
 }
 
