@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI
@@ -31,6 +32,7 @@ blob_client: BlobStorageClient | None = None
 service_bus: ServiceBusHandler | None = None
 pipeline: ExtractionPipeline | None = None
 _consumer_task: asyncio.Task | None = None
+_started_at: datetime | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +111,7 @@ async def handle_scrape_complete(body: dict[str, Any]) -> dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start all clients on startup, tear them down on shutdown."""
-    global llm_client, blob_client, service_bus, pipeline, _consumer_task
+    global llm_client, blob_client, service_bus, pipeline, _consumer_task, _started_at
 
     logging.basicConfig(level=config.log_level, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     logger.info("Extractor service starting up")
@@ -131,6 +133,7 @@ async def lifespan(app: FastAPI):
         service_bus.consume_loop(handle_scrape_complete),
         name="extractor-consumer",
     )
+    _started_at = datetime.now(timezone.utc)
     logger.info("Extractor service ready — consuming from %s", config.scrape_complete_topic)
 
     yield
@@ -170,3 +173,20 @@ app = FastAPI(
 async def health() -> dict[str, str]:
     """Liveness / readiness probe."""
     return {"status": "healthy", "service": "extractor"}
+
+
+@app.get("/status")
+async def status() -> dict[str, Any]:
+    """Readiness / status endpoint — shows extraction pipeline component health."""
+    return {
+        "service": "extractor",
+        "version": "0.1.0",
+        "started_at": _started_at.isoformat() if _started_at else None,
+        "components": {
+            "llm_client": "connected" if llm_client else "not_initialized",
+            "blob_storage": "connected" if blob_client else "not_initialized",
+            "service_bus": "connected" if service_bus else "not_initialized",
+            "pipeline": "ready" if pipeline else "not_initialized",
+        },
+        "consumer_running": _consumer_task is not None and not _consumer_task.done(),
+    }

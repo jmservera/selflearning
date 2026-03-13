@@ -7,11 +7,17 @@ to reference the actual service modules.
 """
 
 import json
+import os
 import re
+import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 
 
 # ============================================================================
@@ -399,3 +405,114 @@ class TestFullExtractionPipeline:
         result = await run_extraction_pipeline("", "src-1", "ml", mock_llm)
         assert result["chunks"] == 0
         assert result["entities"] == []
+
+
+# ============================================================================
+# FastAPI endpoint tests
+# ============================================================================
+
+_EXTRACTOR_BARE_MODULES = frozenset({
+    "main", "config", "models", "blob_storage", "extraction", "llm_client", "service_bus",
+})
+
+
+def _setup_extractor_path() -> None:
+    """Flush stale bare-module caches and add src/extractor/ to sys.path.
+
+    Other service directories are removed to prevent cross-contamination
+    when running the full test suite.
+    """
+    src_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "src"))
+    svc_dir = os.path.normpath(os.path.join(src_dir, "extractor"))
+    # Remove all service directories to avoid cross-contamination
+    other_svcs = {os.path.normpath(os.path.join(src_dir, s))
+                  for s in ("scraper", "orchestrator", "healer", "reasoner")}
+    for name in _EXTRACTOR_BARE_MODULES:
+        sys.modules.pop(name, None)
+    sys.path[:] = [p for p in sys.path
+                   if os.path.normpath(p) not in other_svcs
+                   and os.path.normpath(p) != svc_dir]
+    src_positions = [i for i, p in enumerate(sys.path) if os.path.normpath(p) == src_dir]
+    insert_pos = src_positions[0] if src_positions else 0
+    sys.path.insert(insert_pos, svc_dir)
+
+
+class TestEndpoints:
+    """Tests for extractor FastAPI endpoints (/health, /status)."""
+
+    @pytest_asyncio.fixture
+    async def client(self):
+        """Create test client with mocked module-level globals."""
+        saved_path = sys.path[:]
+        _setup_extractor_path()
+        import main as extractor_mod  # noqa: PLC0415
+
+        mock_llm = MagicMock()
+        mock_blob = MagicMock()
+        mock_service_bus = MagicMock()
+        mock_pipeline = MagicMock()
+
+        extractor_mod.llm_client = mock_llm
+        extractor_mod.blob_client = mock_blob
+        extractor_mod.service_bus = mock_service_bus
+        extractor_mod.pipeline = mock_pipeline
+        extractor_mod._consumer_task = None
+        extractor_mod._started_at = datetime.now(timezone.utc)
+
+        transport = ASGITransport(app=extractor_mod.app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c, extractor_mod, mock_llm, mock_blob, mock_service_bus, mock_pipeline
+
+        extractor_mod.llm_client = None
+        extractor_mod.blob_client = None
+        extractor_mod.service_bus = None
+        extractor_mod.pipeline = None
+        extractor_mod._started_at = None
+        for name in _EXTRACTOR_BARE_MODULES:
+            sys.modules.pop(name, None)
+        sys.path[:] = saved_path
+
+    @pytest.mark.asyncio
+    async def test_health_check(self, client):
+        c, _, _, _, _, _ = client
+        resp = await c.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "healthy"
+        assert data["service"] == "extractor"
+
+    @pytest.mark.asyncio
+    async def test_status_healthy(self, client):
+        c, _, _, _, _, _ = client
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["service"] == "extractor"
+        assert data["components"]["llm_client"] == "connected"
+        assert data["components"]["blob_storage"] == "connected"
+        assert data["components"]["service_bus"] == "connected"
+        assert data["components"]["pipeline"] == "ready"
+        assert data["started_at"] is not None
+        assert data["consumer_running"] is False
+
+    @pytest.mark.asyncio
+    async def test_status_degraded_llm_and_blob(self, client):
+        c, extractor_mod, _, _, _, _ = client
+        extractor_mod.llm_client = None
+        extractor_mod.blob_client = None
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["components"]["llm_client"] == "not_initialized"
+        assert data["components"]["blob_storage"] == "not_initialized"
+
+    @pytest.mark.asyncio
+    async def test_status_degraded_service_bus_and_pipeline(self, client):
+        c, extractor_mod, _, _, _, _ = client
+        extractor_mod.service_bus = None
+        extractor_mod.pipeline = None
+        resp = await c.get("/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["components"]["service_bus"] == "not_initialized"
+        assert data["components"]["pipeline"] == "not_initialized"
