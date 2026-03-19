@@ -35,9 +35,10 @@ See [docs/architecture.md](docs/architecture.md) for the full system architectur
 ### Prerequisites
 
 - [Azure Developer CLI (azd)](https://aka.ms/azd)
-- [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) for local container builds
+- [Azure CLI (az)](https://learn.microsoft.com/cli/azure/install-azure-cli) - authenticated via `az login`
 - [Python 3.12+](https://www.python.org/)
 - An Azure subscription
+- [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) *(optional — only needed for local development; remote builds do not require Docker)*
 
 ### Deploy to Azure
 
@@ -51,6 +52,25 @@ azd init
 # Provision infrastructure and deploy all services
 azd up
 ```
+
+## Building & Deploying
+
+> **Local Docker is NOT required** to build container images.
+> Images are built remotely in Azure Container Registry (ACR).
+> See **[docs/remote-builds.md](docs/remote-builds.md)** for the full guide.
+
+```bash
+# Build all services (remote — no Docker needed)
+./scripts/acr-build.sh
+
+# Build a single service
+./scripts/acr-build.sh api
+```
+
+Images are tagged with both `latest` and the git commit SHA.
+The CI/CD pipeline (GitHub Actions) runs these builds automatically on every push to `main`.
+
+---
 
 ### Local Development with Docker Compose
 
